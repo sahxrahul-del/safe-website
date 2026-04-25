@@ -11,7 +11,7 @@ import {
   LayoutDashboard, UserCircle, Briefcase, Settings, Bell, 
   MapPin, Loader2, CheckCircle, Clock, FileText, ChevronRight, 
   Activity, HeartPulse, Edit3, Eye, Inbox, Smartphone, Bookmark, AlertCircle,
-  MessageSquare, Calendar, ToggleLeft, ToggleRight
+  MessageSquare, Calendar, ToggleLeft, ToggleRight, XCircle
 } from 'lucide-react';
 
 export default function NurseSaaSDashboard() {
@@ -27,17 +27,19 @@ export default function NurseSaaSDashboard() {
   // Job Feeds
   const [availableJobs, setAvailableJobs] = useState([]);
   const [myJobs, setMyJobs] = useState([]);
+  const [directInvites, setDirectInvites] = useState([]); // <-- NEW: The Direct Inbox
   
   // UI & Action States
   const [pageLoading, setPageLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState(null);
+  const [decliningId, setDecliningId] = useState(null);
 
   // Quick Edit State
   const [quickEdit, setQuickEdit] = useState({ specialty: '', hourlyRate: '', bio: '' });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editMessage, setEditMessage] = useState(null);
 
-  // Availability State (Defaulting to Mon-Fri)
+  // Availability State
   const [schedule, setSchedule] = useState({
     Mon: true, Tue: true, Wed: true, Thu: true, Fri: true, Sat: false, Sun: false
   });
@@ -73,27 +75,37 @@ export default function NurseSaaSDashboard() {
           bio: data.bio || ''
         });
 
-        // Load saved schedule if it exists
         if (data.availabilitySchedule) {
           setSchedule(data.availabilitySchedule);
         }
 
+        // START LIVE LISTENER
         const q = query(collection(db, "care_requests"));
         const unsubscribeJobs = onSnapshot(q, (snapshot) => {
           const allRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
+          // 1. GLOBAL JOBS: Searching & Matches my location
           const available = allRequests.filter(req => 
             req.status === 'searching' && 
             (req.location === data.location || req.location === data.district) 
           );
           
+          // 2. MY JOBS: I have already accepted these
           const accepted = allRequests.filter(req => 
             (req.status === 'matched' || req.status === 'completed') && 
             req.nurseId === currentUser.uid
           );
 
+          // 3. DIRECT INVITES: Patients specifically chose me!
+          const invites = allRequests.filter(req => 
+            req.status === 'direct_request' && 
+            req.targetNurseId === currentUser.uid
+          );
+
           setAvailableJobs(available);
           setMyJobs(accepted);
+          setDirectInvites(invites); // Save to state
+          
           setPageLoading(false);
         });
 
@@ -120,12 +132,29 @@ export default function NurseSaaSDashboard() {
         nurseName: userData.name || userData.full_name || "Care Provider",
         nursePhoto: userData.photoURL || userData.avatar_url || ''
       });
-      setActiveTab('my-cases'); // Auto-switch to cases tab after accepting!
+      setActiveTab('my-cases'); 
     } catch (error) {
       console.error("Error accepting job:", error);
       alert("Failed to accept job.");
     } finally {
       setAcceptingId(null);
+    }
+  };
+
+  // NEW: Decline a direct invite
+  const handleDeclineInvite = async (jobId) => {
+    setDecliningId(jobId);
+    try {
+      const jobRef = doc(db, "care_requests", jobId);
+      // Pushes it to the global job board so the patient can still get help!
+      await updateDoc(jobRef, {
+        status: 'searching',
+        targetNurseId: null 
+      });
+    } catch (error) {
+      console.error("Error declining job:", error);
+    } finally {
+      setDecliningId(null);
     }
   };
 
@@ -175,9 +204,73 @@ export default function NurseSaaSDashboard() {
   if (displayRole && (userData.experience || userData.bio)) profileScore += 25;
   if (userData.hourlyRate) profileScore += 10;
   if (displayPhoto && !displayPhoto.includes('default')) profileScore += 20;
-  if (userData.cv_url) profileScore += 10;
+  if (userData.cv_url) profileScore += 5;
+  if (userData.license_url) profileScore += 5;
   if (userData.cert_slc_url || userData.cert_plus2_url || userData.cert_bachelor_url) profileScore += 10;
 
+  // ==========================================
+  // RENDER: DIRECT INVITES INBOX
+  // ==========================================
+  const renderInvites = () => (
+    <div className="animate-in fade-in duration-300 max-w-4xl">
+      <div className="mb-8">
+        <h2 className="text-2xl font-black text-gray-900 font-serif">Direct Invites</h2>
+        <p className="text-sm text-gray-500 font-medium">Patients who viewed your profile and exclusively requested you.</p>
+      </div>
+      
+      {directInvites.length === 0 ? (
+        <div className="py-20 text-center bg-white rounded-3xl border border-gray-100 shadow-sm">
+          <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4"><Inbox className="w-8 h-8"/></div>
+          <h3 className="text-lg font-black text-gray-900">Inbox Zero</h3>
+          <p className="text-gray-500 mt-1">You have no pending direct requests right now.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {directInvites.map(job => (
+            <div key={job.id} className="bg-white p-6 rounded-2xl border-2 border-emerald-400 shadow-md flex flex-col sm:flex-row justify-between sm:items-center gap-6 relative overflow-hidden">
+              <div className="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl">
+                Exclusive Request
+              </div>
+              
+              <div>
+                <h3 className="text-xl font-black text-gray-900 mt-2">{job.roleNeeded}</h3>
+                <p className="text-gray-500 text-sm mt-1 flex items-center"><MapPin className="w-4 h-4 mr-1"/> {job.location} • {job.careType}</p>
+                
+                {/* Patient Details */}
+                <div className="mt-4 flex items-center bg-gray-50 p-3 rounded-lg w-fit">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 overflow-hidden flex items-center justify-center mr-3">
+                    {job.patientPhoto ? <img src={job.patientPhoto} className="w-full h-full object-cover"/> : <span className="text-blue-800 font-bold text-xs">{(job.patientName || "P").charAt(0)}</span>}
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Requested By</p>
+                    <p className="text-sm font-black text-gray-900">{job.patientName}</p>
+                  </div>
+                </div>
+                <p className="text-gray-600 text-sm mt-3 border-l-2 border-emerald-200 pl-3 italic">"{job.details}"</p>
+              </div>
+
+              <div className="shrink-0 flex flex-col gap-2">
+                <button 
+                  onClick={() => handleAcceptJob(job.id)}
+                  disabled={acceptingId === job.id} 
+                  className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-black text-sm hover:bg-emerald-700 transition flex justify-center items-center shadow-sm"
+                >
+                  {acceptingId === job.id ? <Loader2 className="w-4 h-4 animate-spin"/> : "Accept & Connect"}
+                </button>
+                <button 
+                  onClick={() => handleDeclineInvite(job.id)}
+                  disabled={decliningId === job.id}
+                  className="px-6 py-3 bg-white border border-gray-200 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition flex justify-center items-center"
+                >
+                  {decliningId === job.id ? <Loader2 className="w-4 h-4 animate-spin"/> : "Decline Request"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   // ==========================================
   // RENDER: DASHBOARD TAB (Overview)
@@ -185,6 +278,20 @@ export default function NurseSaaSDashboard() {
   const renderDashboard = () => (
     <div className="space-y-6 animate-in fade-in duration-300">
       
+      {/* DIRECT INVITE ALERT BANNER */}
+      {directInvites.length > 0 && (
+        <div className="bg-emerald-600 text-white p-5 rounded-2xl shadow-lg flex items-center justify-between cursor-pointer hover:bg-emerald-700 transition" onClick={() => setActiveTab('invites')}>
+          <div className="flex items-center">
+            <div className="bg-white/20 p-2 rounded-full mr-4"><Inbox className="w-6 h-6"/></div>
+            <div>
+              <h3 className="font-black text-lg">You have {directInvites.length} direct request{directInvites.length > 1 ? 's' : ''}!</h3>
+              <p className="text-emerald-100 text-sm">Patients have viewed your profile and sent you exclusive job offers.</p>
+            </div>
+          </div>
+          <ChevronRight className="w-6 h-6"/>
+        </div>
+      )}
+
       {profileScore < 100 && (
           <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex items-start gap-4 shadow-sm">
             <div className="bg-amber-100 p-2 rounded-full shrink-0"><Clock className="w-6 h-6 text-amber-600"/></div>
@@ -196,7 +303,6 @@ export default function NurseSaaSDashboard() {
           </div>
       )}
 
-      {/* KPI STATS */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
             <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Jobs Near You</span> <MapPin className="w-5 h-5"/></div>
@@ -219,7 +325,6 @@ export default function NurseSaaSDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             
-            {/* QUICK EDIT FORM */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                   <div><h3 className="font-bold text-gray-900">Quick Profile Edit</h3><p className="text-xs text-gray-500">Update your key details</p></div>
@@ -254,7 +359,7 @@ export default function NurseSaaSDashboard() {
                 </form>
             </div>
 
-            {/* LIVE JOB BOARD */}
+            {/* LOCATION FILTERED PUBLIC JOB BOARD */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-6 py-5 border-b border-gray-50 flex justify-between items-center bg-[#fdfcf9]">
                 <h3 className="font-bold text-gray-900 flex items-center">
@@ -263,7 +368,7 @@ export default function NurseSaaSDashboard() {
               </div>
               <div className="p-6">
                 {availableJobs.length === 0 ? (
-                  <div className="py-8 text-center text-gray-500 text-sm font-medium">No patients are searching in your area right now.</div>
+                  <div className="py-8 text-center text-gray-500 text-sm font-medium">No general requests in your area right now.</div>
                 ) : (
                   <div className="space-y-4">
                     {availableJobs.map((job) => (
@@ -287,16 +392,27 @@ export default function NurseSaaSDashboard() {
             </div>
           </div>
 
-          {/* PROFILE STRENGTH */}
           <div className="space-y-6">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gray-100"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${profileScore}%` }}></div></div>
+                <div className="absolute top-0 left-0 w-full h-1 bg-gray-100"><div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${profileScore}%` }}></div></div>
                 <h3 className="font-bold text-gray-900 mt-2">Profile Strength</h3>
                 <p className="text-3xl font-black text-emerald-600 my-2">{profileScore}%</p>
-                <div className="space-y-2 mt-4 text-sm font-medium">
+                <div className="space-y-3 mt-4 text-sm font-medium">
                   {displayName ? <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> Basic Info Added</p> : <p className="flex items-center text-amber-600"><AlertCircle className="w-4 h-4 mr-2"/> Missing Basic Info</p>}
                   {userData.hourlyRate ? <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> Rate Configured</p> : <p className="flex items-center text-amber-600"><AlertCircle className="w-4 h-4 mr-2"/> Set Hourly Rate</p>}
                   {displayPhoto && !displayPhoto.includes('default') ? <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> Photo Uploaded</p> : <p className="flex items-center text-amber-600"><AlertCircle className="w-4 h-4 mr-2"/> Add Profile Photo</p>}
+                  
+                  {/* NEW: Dynamic CV & License Checks */}
+                  {userData.cv_url ? (
+                    <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> CV Uploaded</p>
+                  ) : (
+                    <button onClick={() => router.push('/profile')} className="flex items-center text-amber-600 hover:text-amber-700 w-full text-left group transition"><AlertCircle className="w-4 h-4 mr-2"/> Upload CV <span className="ml-auto opacity-0 group-hover:opacity-100 transition text-xs font-bold bg-amber-100 px-2 py-0.5 rounded">Add +</span></button>
+                  )}
+                  {userData.license_url ? (
+                    <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> License Uploaded</p>
+                  ) : (
+                    <button onClick={() => router.push('/profile')} className="flex items-center text-amber-600 hover:text-amber-700 w-full text-left group transition"><AlertCircle className="w-4 h-4 mr-2"/> Upload License <span className="ml-auto opacity-0 group-hover:opacity-100 transition text-xs font-bold bg-amber-100 px-2 py-0.5 rounded">Add +</span></button>
+                  )}
                 </div>
             </div>
           </div>
@@ -305,7 +421,7 @@ export default function NurseSaaSDashboard() {
   );
 
   // ==========================================
-  // RENDER: MY CASES TAB
+  // RENDER: MY CASES & AVAILABILITY TABS
   // ==========================================
   const renderMyCases = () => (
     <div className="animate-in fade-in duration-300 max-w-4xl">
@@ -319,7 +435,6 @@ export default function NurseSaaSDashboard() {
           <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4"><Briefcase className="w-8 h-8"/></div>
           <h3 className="text-lg font-black text-gray-900">No cases yet</h3>
           <p className="text-gray-500 mt-1">Accept jobs from the dashboard to see them here.</p>
-          <button onClick={() => setActiveTab('dashboard')} className="mt-6 px-6 py-2 bg-gray-900 text-white rounded-lg font-bold text-sm">Find Jobs</button>
         </div>
       ) : (
         <div className="space-y-4">
@@ -334,7 +449,6 @@ export default function NurseSaaSDashboard() {
                 <p className="text-gray-600 text-sm mt-3 bg-gray-50 p-3 rounded-lg">"{job.details}"</p>
               </div>
               <div className="shrink-0 flex flex-col gap-2">
-                <button className="px-6 py-3 bg-[#0a271f] text-white rounded-xl font-bold text-sm hover:bg-black transition">View Full Details</button>
                 <button onClick={() => setActiveTab('messages')} className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold text-sm hover:border-gray-300 transition">Message Patient</button>
               </div>
             </div>
@@ -344,23 +458,6 @@ export default function NurseSaaSDashboard() {
     </div>
   );
 
-  // ==========================================
-  // RENDER: MESSAGES TAB (Placeholder)
-  // ==========================================
-  const renderMessages = () => (
-    <div className="animate-in fade-in duration-300 h-[70vh] flex flex-col items-center justify-center bg-white rounded-3xl border border-gray-100 shadow-sm p-10 text-center max-w-4xl">
-      <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-inner"><MessageSquare className="w-12 h-12"/></div>
-      <h2 className="text-3xl font-black text-gray-900 font-serif mb-2">Secure Messaging</h2>
-      <p className="text-gray-500 font-medium max-w-md mx-auto mb-8">
-        This is where you will chat directly with patients who have accepted your services. The real-time messaging system is currently under development!
-      </p>
-      <button onClick={() => setActiveTab('my-cases')} className="px-8 py-3 bg-gray-900 text-white rounded-xl font-bold shadow-md hover:bg-gray-800 transition">Back to My Cases</button>
-    </div>
-  );
-
-  // ==========================================
-  // RENDER: AVAILABILITY TAB
-  // ==========================================
   const renderAvailability = () => (
     <div className="animate-in fade-in duration-300 max-w-2xl">
       <div className="mb-8">
@@ -393,6 +490,15 @@ export default function NurseSaaSDashboard() {
     </div>
   );
 
+  const renderMessages = () => (
+    <div className="animate-in fade-in duration-300 h-[70vh] flex flex-col items-center justify-center bg-white rounded-3xl border border-gray-100 shadow-sm p-10 text-center max-w-4xl">
+      <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-inner"><MessageSquare className="w-12 h-12"/></div>
+      <h2 className="text-3xl font-black text-gray-900 font-serif mb-2">Secure Messaging</h2>
+      <p className="text-gray-500 font-medium max-w-md mx-auto mb-8">
+        Chat directly with patients who have accepted your services. The real-time messaging system is currently under development!
+      </p>
+    </div>
+  );
 
   // ==========================================
   // MASTER RENDER
@@ -400,7 +506,7 @@ export default function NurseSaaSDashboard() {
   return (
     <div className="flex h-screen bg-[#f4f7f6] font-sans overflow-hidden">
       
-      {/* LEFT SIDEBAR (Tabs connected!) */}
+      {/* LEFT SIDEBAR */}
       <aside className="hidden lg:flex w-64 bg-white border-r border-gray-100 flex-col h-full shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
         <div className="p-6 border-b border-gray-50">
           <div className="flex items-center gap-4 mb-4">
@@ -423,6 +529,10 @@ export default function NurseSaaSDashboard() {
           <nav className="space-y-1">
             <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'dashboard' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
               <LayoutDashboard className="w-5 h-5 mr-3" /> Dashboard
+            </button>
+            <button onClick={() => setActiveTab('invites')} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'invites' ? 'bg-red-50 text-red-600' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+              <span className="flex items-center"><Inbox className="w-5 h-5 mr-3" /> Direct Invites</span>
+              {directInvites.length > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{directInvites.length}</span>}
             </button>
             <button onClick={() => setActiveTab('my-cases')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'my-cases' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
               <Briefcase className="w-5 h-5 mr-3" /> My Cases
@@ -454,13 +564,14 @@ export default function NurseSaaSDashboard() {
            <div className="flex items-center gap-4">
              <button className="relative p-2 text-gray-400 hover:text-emerald-600 bg-gray-50 rounded-full transition">
                <Bell className="w-5 h-5" />
-               {availableJobs.length > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>}
+               {(availableJobs.length > 0 || directInvites.length > 0) && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>}
              </button>
            </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {activeTab === 'dashboard' && renderDashboard()}
+          {activeTab === 'invites' && renderInvites()}
           {activeTab === 'my-cases' && renderMyCases()}
           {activeTab === 'messages' && renderMessages()}
           {activeTab === 'availability' && renderAvailability()}

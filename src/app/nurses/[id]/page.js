@@ -1,203 +1,336 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import Image from 'next/image';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { useParams, useRouter } from 'next/navigation';
+import { auth, db } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { 
-  ArrowLeft, Star, MapPin, ShieldCheck, Clock, 
-  Award, FileText, CalendarCheck, MessageCircle, CheckCircle, Loader2
+  ArrowLeft, Star, MapPin, ShieldCheck, CheckCircle, 
+  Clock, Loader2, FileText, Briefcase, GraduationCap 
 } from 'lucide-react';
 
-export default function NurseProfile() {
+export default function NursePublicProfile() {
+  const { id } = useParams(); // Gets the ID from the URL
   const router = useRouter();
-  const params = useParams(); 
   
-  const [bookingState, setBookingState] = useState('idle');
-  const [mockNurseData, setMockNurseData] = useState(null);
+  const [nurseData, setNurseData] = useState(null);
+  const [patientData, setPatientData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [reviews, setReviews] = useState([]);
 
-  // FETCH SPECIFIC NURSE FROM FIREBASE
+  // Modal & Form State
+  const [showModal, setShowModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [formData, setFormData] = useState({
+    careType: 'In-Home Care',
+    urgency: 'Flexible',
+    details: ''
+  });
+
+  // ==========================================
+  // 1. FETCH NURSE & PATIENT DATA
+  // ==========================================
   useEffect(() => {
-    const fetchNurse = async () => {
-      const docRef = doc(db, "providers", params.id);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        // We shape the Firebase data to match your existing HTML variables!
-        setMockNurseData({
-          id: docSnap.id,
-          name: `${data.firstName} ${data.lastName}`,
-          role: data.role,
-          rate: data.hourlyRate,
-          rating: data.rating,
-          reviews: data.reviews,
-          location: data.location,
-          avatar: '/default-avatar.png', // Placeholder until you add photo uploads
-          bio: `Hi, I'm ${data.firstName}. I specialize in ${data.specialties?.[0] || 'patient care'}.`,
-          experience: `${data.experience} Years`,
-          education: [{ degree: 'Verified License', school: 'Safe Home Approved', year: 'Active' }],
-          isAvailable: data.availableToday
-        });
-      }
-    };
-    fetchNurse();
-  }, [params.id]);
+    const fetchData = async () => {
+      // Get Logged-in Patient Identity
+      const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          const pDoc = await getDoc(doc(db, 'users', user.uid));
+          if (pDoc.exists()) setPatientData({ id: user.uid, ...pDoc.data() });
+        }
+      });
 
-  if (!mockNurseData) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-emerald-600" /></div>;
-  const handleBooking = () => {
-    setBookingState('loading');
+      try {
+        // Try to find the nurse in REAL users first
+        let nDoc = await getDoc(doc(db, 'users', id));
+        
+        // If not found, look in the MEGA-SEEDER providers collection
+        if (!nDoc.exists()) {
+          nDoc = await getDoc(doc(db, 'providers', id));
+        }
+
+        if (nDoc.exists()) {
+          setNurseData({ id: nDoc.id, ...nDoc.data() });
+
+          // Fetch their completed reviews!
+          const q = query(collection(db, "care_requests"), where("nurseId", "==", id), where("status", "==", "completed"));
+          const reviewSnap = await getDocs(q);
+          const fetchedReviews = reviewSnap.docs.map(d => d.data()).filter(r => r.rating); // Only keep ones with a rating
+          setReviews(fetchedReviews);
+
+        } else {
+          // No nurse found with this ID
+          router.push('/dashboard/patient'); 
+        }
+      } catch (error) {
+        console.error("Error fetching nurse:", error);
+      } finally {
+        setLoading(false);
+      }
+      return () => unsubscribe();
+    };
+
+    fetchData();
+  }, [id, router]);
+
+  // ==========================================
+  // 2. DIRECT REQUEST ENGINE
+  // ==========================================
+  const handleDirectRequest = async (e) => {
+    e.preventDefault();
+    if (!patientData) {
+      alert("Please log in to send a request.");
+      router.push('/login');
+      return;
+    }
+
+    setSubmitting(true);
     
-    setTimeout(() => {
-      setBookingState('success');
-    }, 2000);
+    try {
+      await addDoc(collection(db, "care_requests"), {
+        ...formData,
+        patientId: patientData.id,
+        patientName: patientData.name || patientData.full_name || "Patient",
+        patientPhoto: patientData.photoURL || patientData.avatar_url || "",
+        location: patientData.location || patientData.district || "Patient Location",
+        roleNeeded: nurseData.specialty || nurseData.role || "Registered Nurse",
+        targetNurseId: nurseData.id, // EXCLUSIVE DIRECT INVITE!
+        status: "direct_request", 
+        createdAt: serverTimestamp(),
+      });
+
+      setSubmitting(false);
+      setSuccess(true);
+      
+      setTimeout(() => {
+        router.push('/dashboard/patient');
+      }, 2500);
+
+    } catch (error) {
+      console.error("Error posting case: ", error);
+      alert("Failed to send request.");
+      setSubmitting(false);
+    }
   };
 
+// ==========================================
+  // 3. UI RENDER
+  // ==========================================
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#fdfcf9]">
+        <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mb-4" />
+        <p className="text-gray-500 font-bold">Loading secure profile...</p>
+      </div>
+    );
+  }
+
+  if (!nurseData) return null;
+
+  const displayName = nurseData.name || nurseData.full_name || "Provider";
+  const displayPhoto = nurseData.photoURL || nurseData.avatar_url || null;
+  const displayRole = nurseData.specialty || nurseData.role || "Professional Caregiver";
+
+  // --> DROPPED IT RIGHT HERE! <--
+  const avgRating = reviews.length > 0 
+    ? (reviews.reduce((acc, curr) => acc + curr.rating, 0) / reviews.length).toFixed(1)
+    : "New";
+
   return (
-    <div className="min-h-screen bg-[#fdfcf9] font-sans pb-20">
+    <div className="min-h-screen bg-[#f4f7f6] font-sans pb-24">
       
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
+      {/* TOP NAVIGATION */}
+      <header className="bg-white border-b border-gray-100 p-6 sticky top-0 z-30">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <button onClick={() => router.back()} className="flex items-center text-gray-500 hover:text-gray-900 transition font-bold text-sm">
+            <ArrowLeft className="w-5 h-5 mr-2" /> Back to Search
+          </button>
+          <div className="flex items-center text-emerald-700 font-black font-serif text-xl">
+            Safe Home.
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-6 pt-10">
         
-        {/* Floating Back Button (Replaces the Navbar) */}
-        <button 
-          onClick={() => router.back()} 
-          className="mb-6 flex items-center text-sm font-bold text-gray-400 hover:text-gray-900 transition"
-        >
-          <ArrowLeft className="w-5 h-5 mr-2" /> Back to Matches
-        </button>
-
-        <div className="flex flex-col lg:flex-row gap-8">
+        {/* HEADER PROFILE CARD */}
+        <div className="bg-white rounded-3xl p-8 lg:p-12 shadow-sm border border-gray-100 mb-8 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-bl-full -z-10 opacity-50"></div>
           
-          {/* LEFT COLUMN: Profile Details */}
-          <div className="lg:w-2/3 space-y-8">
-             
-             {/* Hero Profile Card */}
-             <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm flex flex-col sm:flex-row items-center sm:items-start gap-6 relative overflow-hidden">
-                <div className="absolute top-0 w-full h-24 bg-gradient-to-r from-emerald-900 to-[#0a271f] left-0"></div>
-                
-                <div className="relative mt-8 sm:mt-10 shrink-0">
-                   <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-lg bg-gray-100">
-                      <Image src={mockNurseData.avatar} alt={mockNurseData.name} width={128} height={128} className="object-cover" />
-                   </div>
-                   <div className="absolute bottom-2 right-2 bg-green-500 w-5 h-5 rounded-full border-2 border-white shadow-sm" title="Online & Available"></div>
-                </div>
+          <div className="flex flex-col md:flex-row gap-8 items-start md:items-center">
+            <div className="w-32 h-32 rounded-full bg-[#0a271f] text-white overflow-hidden flex items-center justify-center font-black text-4xl border-4 border-white shadow-lg shrink-0">
+              {displayPhoto ? <img src={displayPhoto} alt={displayName} className="w-full h-full object-cover"/> : displayName.charAt(0)}
+            </div>
+            
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-3xl lg:text-4xl font-black text-gray-900 font-serif leading-tight">{displayName}</h1>
+                <ShieldCheck className="w-6 h-6 text-emerald-500" />
+              </div>
+              <p className="text-lg text-gray-500 font-medium mb-4">{displayRole} • {nurseData.experience || '3'} Years Experience</p>
+              
+              <div className="flex flex-wrap gap-4 text-sm font-bold">
+                <span className="flex items-center text-gray-600 bg-gray-50 px-4 py-2 rounded-xl">
+                  <MapPin className="w-4 h-4 mr-2 text-gray-400" /> {nurseData.location || nurseData.district || "Kathmandu"}
+                </span>
+                <span className="flex items-center text-gray-600 bg-gray-50 px-4 py-2 rounded-xl">
+                  <Star className="w-4 h-4 mr-2 text-amber-400 fill-amber-400" /> {avgRating} Rating ({reviews.length})
+                </span>
+                <span className="flex items-center text-emerald-700 bg-emerald-50 px-4 py-2 rounded-xl">
+                  <CheckCircle className="w-4 h-4 mr-2" /> Verified Background
+                </span>
+              </div>
+            </div>
 
-                <div className="mt-4 sm:mt-16 text-center sm:text-left flex-1">
-                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-2">
-                      <div>
-                        <h1 className="text-3xl font-black text-gray-900 flex items-center justify-center sm:justify-start">
-                           {mockNurseData.name} <ShieldCheck className="w-6 h-6 text-blue-500 ml-2" title="Background Checked" />
-                        </h1>
-                        <p className="text-emerald-700 font-bold mt-1">{mockNurseData.role}</p>
-                      </div>
-                      <div className="hidden sm:flex flex-col items-end">
-                         <p className="text-2xl font-black text-gray-900">Rs. {mockNurseData.rate}</p>
-                         <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Per Hour</p>
-                      </div>
-                   </div>
+            <div className="w-full md:w-auto bg-[#fbfaf8] p-6 rounded-2xl border border-gray-100 text-center shrink-0">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Hourly Rate</p>
+              <p className="text-4xl font-black text-gray-900 mb-4">Rs. {nurseData.hourlyRate || 1500}</p>
+              <button onClick={() => setShowModal(true)} className="w-full px-8 py-4 bg-[#0a271f] text-white font-bold rounded-xl shadow-md hover:bg-black transition">
+                Request Provider
+              </button>
+            </div>
+          </div>
+        </div>
 
-                   <div className="flex flex-wrap justify-center sm:justify-start gap-4 mt-4 text-sm font-medium text-gray-600">
-                      <p className="flex items-center"><MapPin className="w-4 h-4 mr-1 text-gray-400"/> {mockNurseData.location}</p>
-                      <p className="flex items-center"><Clock className="w-4 h-4 mr-1 text-gray-400"/> {mockNurseData.experience} Exp.</p>
-                      <p className="flex items-center text-amber-600 font-bold"><Star className="w-4 h-4 mr-1 fill-current"/> {mockNurseData.rating} ({mockNurseData.reviews} Reviews)</p>
-                   </div>
-                </div>
-             </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* LEFT COLUMN: Bio & Details */}
+          <div className="lg:col-span-2 space-y-8">
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+              <h3 className="text-xl font-black text-gray-900 mb-6 flex items-center"><Briefcase className="w-5 h-5 mr-3 text-emerald-600"/> Professional Bio</h3>
+              <p className="text-gray-600 leading-relaxed font-medium">
+                {nurseData.bio || `${displayName} is a highly qualified ${displayRole} with extensive experience providing compassionate, top-tier care in home and facility settings. Fully verified through the Safe Home platform.`}
+              </p>
+            </div>
 
-             {/* About Section */}
-             <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-                <h2 className="text-xl font-black text-gray-900 mb-4">About Me</h2>
-                <p className="text-gray-600 leading-relaxed">{mockNurseData.bio}</p>
-             </div>
-
-             {/* Education & Credentials */}
-             <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-                <h2 className="text-xl font-black text-gray-900 mb-6">Credentials & Education</h2>
-                <div className="space-y-6">
-                   {mockNurseData.education.map((edu, idx) => (
-                     <div key={idx} className="flex gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
-                           <Award className="w-6 h-6 text-emerald-600" />
-                        </div>
-                        <div>
-                           <p className="font-bold text-gray-900">{edu.degree}</p>
-                           <p className="text-sm text-gray-500">{edu.school} • Graduated {edu.year}</p>
-                        </div>
-                     </div>
-                   ))}
-                </div>
-                
-                <div className="mt-8 pt-6 border-t border-gray-100 flex items-center gap-3">
-                   <FileText className="w-5 h-5 text-gray-400" />
-                   <p className="text-sm font-bold text-gray-900 underline cursor-pointer hover:text-emerald-600">View Verified CV & License Document</p>
-                </div>
-             </div>
-
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+              <h3 className="text-xl font-black text-gray-900 mb-6 flex items-center"><GraduationCap className="w-5 h-5 mr-3 text-emerald-600"/> Verified Credentials</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {nurseData.cv_url && (
+                  <a href={nurseData.cv_url} target="_blank" rel="noreferrer" className="flex items-center p-4 rounded-xl border border-gray-100 hover:border-emerald-200 hover:bg-emerald-50 transition group cursor-pointer">
+                    <FileText className="w-8 h-8 text-gray-400 group-hover:text-emerald-600 mr-4 transition" />
+                    <div><p className="font-bold text-gray-900">Curriculum Vitae (CV)</p><p className="text-xs text-gray-500">PDF Document</p></div>
+                  </a>
+                )}
+                {nurseData.cert_bachelor_url && (
+                  <a href={nurseData.cert_bachelor_url} target="_blank" rel="noreferrer" className="flex items-center p-4 rounded-xl border border-gray-100 hover:border-emerald-200 hover:bg-emerald-50 transition group cursor-pointer">
+                    <CheckCircle className="w-8 h-8 text-gray-400 group-hover:text-emerald-600 mr-4 transition" />
+                    <div><p className="font-bold text-gray-900">Nursing License</p><p className="text-xs text-emerald-600 font-bold">Verified</p></div>
+                  </a>
+                )}
+                {!nurseData.cv_url && !nurseData.cert_bachelor_url && (
+                  <p className="text-gray-500 font-medium italic col-span-2">Documents securely stored offline via Safe Home compliance.</p>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* RIGHT COLUMN: Sticky Booking Widget */}
-          <div className="lg:w-1/3">
-             <div className="bg-white rounded-3xl border border-gray-100 shadow-xl sticky top-8 overflow-hidden">
-                
-                {/* Header */}
-                <div className="bg-[#0a271f] p-6 text-white">
-                   <p className="text-xs text-emerald-300 font-bold uppercase tracking-wider mb-1">Direct Booking</p>
-                   <h3 className="text-2xl font-black">Hire {mockNurseData.name.split(' ')[0]}</h3>
-                </div>
-
-                <div className="p-6">
-                   <div className="flex justify-between items-center pb-4 border-b border-gray-100 mb-6">
-                      <span className="text-gray-500 font-bold">Standard Rate</span>
-                      <span className="text-xl font-black text-gray-900">Rs. {mockNurseData.rate}<span className="text-sm text-gray-500 font-medium">/hr</span></span>
-                   </div>
-
-                   <ul className="space-y-3 mb-8 text-sm font-medium text-gray-600">
-                      <li className="flex items-center"><CheckCircle className="w-4 h-4 mr-3 text-emerald-500"/> Background Checked</li>
-                      <li className="flex items-center"><CheckCircle className="w-4 h-4 mr-3 text-emerald-500"/> Verified Medical License</li>
-                      <li className="flex items-center"><CheckCircle className="w-4 h-4 mr-3 text-emerald-500"/> Responds within 1 hour</li>
-                   </ul>
-
-                   {/* DYNAMIC BUTTON STATES */}
-                   {bookingState === 'idle' && (
-                     <button 
-                       onClick={handleBooking}
-                       className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl transition flex justify-center items-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                     >
-                       <CalendarCheck className="w-5 h-5 mr-2" /> Send Care Request
-                     </button>
-                   )}
-
-                   {bookingState === 'loading' && (
-                     <button disabled className="w-full py-4 bg-gray-100 text-gray-500 font-black rounded-xl flex justify-center items-center">
-                       <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Pinging Provider...
-                     </button>
-                   )}
-
-                   {bookingState === 'success' && (
-                     <div className="space-y-3 animate-in fade-in duration-500">
-                       <div className="w-full py-3 bg-emerald-50 border border-emerald-200 text-emerald-800 font-black rounded-xl flex justify-center items-center">
-                         <CheckCircle className="w-5 h-5 mr-2" /> Request Sent!
-                       </div>
-                       
-                       {/* THE HIDDEN MESSAGE BUTTON REVEALED */}
-                       <button className="w-full py-4 bg-white border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-black rounded-xl transition flex justify-center items-center shadow-sm">
-                         <MessageCircle className="w-5 h-5 mr-2" /> Message {mockNurseData.name.split(' ')[0]}
-                       </button>
-                     </div>
-                   )}
-
-                   {bookingState === 'idle' && (
-                     <p className="text-center text-[10px] text-gray-400 uppercase tracking-widest font-bold mt-4">
-                        You won't be charged yet
-                     </p>
-                   )}
-                </div>
-
-             </div>
+          {/* RIGHT COLUMN: Availability & Stats */}
+          <div className="space-y-8">
+            <div className="bg-[#0a271f] text-white rounded-3xl p-8 shadow-xl">
+              <h3 className="text-xl font-black mb-6 flex items-center"><Clock className="w-5 h-5 mr-3 text-emerald-400"/> Current Availability</h3>
+              <div className="space-y-3">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(day => (
+                  <div key={day} className="flex justify-between items-center py-2 border-b border-emerald-900/50">
+                    <span className="font-bold text-emerald-100">{day}</span>
+                    <span className="text-xs font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded">Available</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
         </div>
+
+        {/* PATIENT TESTIMONIALS SECTION */}
+        <div className="mt-8 bg-white rounded-3xl p-8 lg:p-12 shadow-sm border border-gray-100">
+           <h3 className="text-2xl font-black text-gray-900 mb-8 flex items-center font-serif">
+             <Star className="w-6 h-6 mr-3 text-amber-400 fill-amber-400"/> Patient Testimonials
+           </h3>
+           
+           {reviews.length === 0 ? (
+             <p className="text-gray-500 font-medium italic">No reviews yet. Be the first to hire and review {displayName.split(' ')[0]}!</p>
+           ) : (
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               {reviews.map((rev, i) => (
+                 <div key={i} className="p-6 rounded-2xl bg-[#fdfcf9] border border-gray-100 shadow-sm">
+                   <div className="flex items-center gap-1 mb-4">
+                     {[...Array(5)].map((_, idx) => (
+                       <Star key={idx} className={`w-4 h-4 ${idx < rev.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200'}`} />
+                     ))}
+                   </div>
+                   <p className="text-gray-700 font-medium leading-relaxed mb-6">"{rev.reviewComment}"</p>
+                   <div className="flex items-center gap-3 pt-4 border-t border-gray-100">
+                     <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm overflow-hidden border-2 border-white shadow-sm">
+                       {rev.patientPhoto ? <img src={rev.patientPhoto} className="w-full h-full object-cover"/> : (rev.patientName || "P").charAt(0)}
+                     </div>
+                     <div>
+                       <span className="font-bold text-sm text-gray-900 block">{rev.patientName}</span>
+                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Verified Patient</span>
+                     </div>
+                   </div>
+                 </div>
+               ))}
+             </div>
+           )}
+        </div>
+
       </main>
+
+      {/* DIRECT REQUEST MODAL (Popup) */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden">
+            
+            {success ? (
+              <div className="p-12 text-center">
+                <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <CheckCircle className="w-12 h-12 text-emerald-600" />
+                </div>
+                <h3 className="text-3xl font-black text-gray-900 font-serif mb-2">Request Sent!</h3>
+                <p className="text-gray-500 mb-8 font-medium">We've directly notified {displayName.split(' ')[0]}. Routing you back to your dashboard...</p>
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mx-auto" />
+              </div>
+            ) : (
+              <div>
+                <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-[#fdfcf9]">
+                  <h3 className="text-xl font-black text-gray-900 font-serif">Direct Care Request</h3>
+                  <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-900 font-black">✕</button>
+                </div>
+                
+                <form onSubmit={handleDirectRequest} className="p-8 space-y-6">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Care Needed</label>
+                    <select value={formData.careType} onChange={(e) => setFormData({...formData, careType: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 outline-none font-medium">
+                      <option value="In-Home Care">In-Home Care</option>
+                      <option value="Post-Surgical">Post-Surgical</option>
+                      <option value="Elderly Companionship">Elderly Companionship</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Timeline</label>
+                    <select value={formData.urgency} onChange={(e) => setFormData({...formData, urgency: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 outline-none font-medium">
+                      <option value="Flexible">Flexible Timeline</option>
+                      <option value="This Week">Starts This Week</option>
+                      <option value="Urgent">ASAP / Urgent</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Message to Provider</label>
+                    <textarea required value={formData.details} onChange={(e) => setFormData({...formData, details: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 outline-none font-medium resize-none min-h-[100px]" placeholder="Briefly describe what you need help with..."></textarea>
+                  </div>
+                  <button type="submit" disabled={submitting} className="w-full bg-[#0a271f] text-white font-bold py-4 rounded-xl flex items-center justify-center hover:bg-black transition shadow-lg disabled:opacity-70">
+                    {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Send Secure Request"}
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

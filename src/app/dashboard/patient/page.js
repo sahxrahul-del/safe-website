@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
-  doc, getDoc, collection, query, onSnapshot 
+  doc, getDoc, collection, query, onSnapshot, updateDoc 
 } from 'firebase/firestore';
 import { 
   LayoutDashboard, UserCircle, Plus, Search, Bell, 
@@ -27,6 +27,11 @@ export default function PatientSaaSDashboard() {
   const [myRequests, setMyRequests] = useState([]);
   const [availableProviders, setAvailableProviders] = useState([]);
   const [pageLoading, setPageLoading] = useState(true);
+
+  // Review Modal State
+  const [reviewModal, setReviewModal] = useState({ isOpen: false, jobId: null });
+  const [reviewData, setReviewData] = useState({ rating: 5, comment: '' });
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   // ==========================================
   // 1. SYSTEM INITIALIZATION & SECURITY
@@ -98,6 +103,25 @@ export default function PatientSaaSDashboard() {
     return () => unsubscribeAuth();
   }, [router]);
 
+const handleCompleteAndReview = async (e) => {
+    e.preventDefault();
+    setSubmittingReview(true);
+    try {
+      const jobRef = doc(db, "care_requests", reviewModal.jobId);
+      await updateDoc(jobRef, {
+        status: 'completed',
+        rating: reviewData.rating,
+        reviewComment: reviewData.comment,
+        completedAt: new Date()
+      });
+      setReviewModal({ isOpen: false, jobId: null });
+      setReviewData({ rating: 5, comment: '' });
+    } catch (error) {
+      console.error("Error submitting review:", error);
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   // ==========================================
   // 3. UI CALCULATIONS
@@ -319,6 +343,14 @@ export default function PatientSaaSDashboard() {
               <button onClick={() => setActiveTab('messages')} className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold text-sm hover:border-gray-300 transition flex justify-center items-center">
                  <MessageSquare className="w-4 h-4 mr-2"/> Message
               </button>
+              {job.status === 'matched' && (
+  <button 
+    onClick={() => setReviewModal({ isOpen: true, jobId: job.id })} 
+    className="px-6 py-3 bg-[#0a271f] text-white rounded-xl font-bold text-sm hover:bg-black transition flex justify-center items-center shadow-md mt-2 sm:mt-0"
+  >
+    <CheckCircle className="w-4 h-4 mr-2"/> Complete & Review
+  </button>
+)}
             </div>
           </div>
         ))}
@@ -420,6 +452,41 @@ export default function PatientSaaSDashboard() {
           {activeTab === 'messages' && renderMessages()}
         </main>
       </div>
+      
+      {/* REVIEW MODAL POPUP */}
+      {reviewModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8">
+            <h3 className="text-2xl font-black text-gray-900 font-serif mb-2">Complete Shift</h3>
+            <p className="text-gray-500 text-sm mb-6">How was your experience with this provider?</p>
+            
+            <form onSubmit={handleCompleteAndReview} className="space-y-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Rate the Provider</label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star 
+                      key={star} 
+                      onClick={() => setReviewData({...reviewData, rating: star})}
+                      className={`w-10 h-10 cursor-pointer transition ${reviewData.rating >= star ? 'text-amber-400 fill-amber-400 scale-110' : 'text-gray-200 hover:text-amber-200'}`} 
+                    />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Write a Review</label>
+                <textarea required value={reviewData.comment} onChange={(e) => setReviewData({...reviewData, comment: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 outline-none font-medium resize-none min-h-[100px]" placeholder="They were very professional and helpful..."></textarea>
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setReviewModal({ isOpen: false, jobId: null })} className="flex-1 bg-gray-100 text-gray-700 font-bold py-4 rounded-xl hover:bg-gray-200 transition">Cancel</button>
+                <button type="submit" disabled={submittingReview} className="flex-1 bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition flex items-center justify-center">
+                  {submittingReview ? <Loader2 className="w-5 h-5 animate-spin"/> : "Submit Review"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

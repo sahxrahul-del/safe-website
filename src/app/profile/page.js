@@ -358,6 +358,7 @@ export default function Profile() {
                            </label>
                         </div>
                       </div>
+                   
 
                       {/* Main CV Upload */}
                       <div className="pt-4 border-t border-gray-100">
@@ -366,6 +367,16 @@ export default function Profile() {
                              {uploadingState['cv'] ? <Loader2 className="w-5 h-5 animate-spin mr-3"/> : (formData.cv_url ? <CheckCircle className="w-5 h-5 mr-3"/> : <FileText className="w-5 h-5 mr-3"/>)}
                              <span className="font-bold">{formData.cv_url ? "CV Uploaded Successfully" : "Click to upload CV (.pdf)"}</span>
                              <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'cv', 'cv_url')} />
+                         </label>
+                      </div>
+
+                     {/* License Upload */}
+                      <div className="pt-4 border-t border-gray-100">
+                         <label className={labelClass}>Nursing License (PDF)</label>
+                         <label className={`mt-2 inline-flex items-center px-6 py-4 border-2 border-dashed rounded-xl cursor-pointer transition ${formData.license_url ? 'bg-emerald-50 border-emerald-600 text-emerald-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                             {uploadingState['license'] ? <Loader2 className="w-5 h-5 animate-spin mr-3"/> : (formData.license_url ? <CheckCircle className="w-5 h-5 mr-3"/> : <FileText className="w-5 h-5 mr-3"/>)}
+                             <span className="font-bold">{formData.license_url ? "License Uploaded Successfully" : "Click to upload License (.pdf)"}</span>
+                             <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'license', 'license_url')} />
                          </label>
                       </div>
                     </div>
