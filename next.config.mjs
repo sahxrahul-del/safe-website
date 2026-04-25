@@ -1,10 +1,19 @@
-/** @type {import('next').Config} */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
     remotePatterns: [
-      { protocol: 'https', hostname: 'api.dicebear.com' }, // For default avatars
-      { protocol: 'https', hostname: 'lh3.googleusercontent.com' }, // For Google Login photos
-      { protocol: 'https', hostname: 'firebasestorage.googleapis.com' } // For Firebase uploads
+      {
+        protocol: 'https',
+        hostname: 'firebasestorage.googleapis.com', // Allows Firebase Storage images
+      },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com', // Allows Google Login profile pictures
+      },
+      {
+        protocol: 'https',
+        hostname: 'i.pravatar.cc', // Allows our Mega-Seeder fake placeholder faces
+      }
     ],
   },
 };

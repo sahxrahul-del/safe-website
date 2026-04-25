@@ -1,16 +1,21 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
-// IMPORTING FIREBASE:
-import { db } from '@/lib/firebase'; // <-- Make sure this path matches your setup!
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+
+// IMPORTING FIREBASE (Added auth & doc fetching)
+import { auth, db } from '@/lib/firebase'; 
+import { onAuthStateChanged } from 'firebase/auth';
+import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 
 export default function PostCareRequest() {
   const router = useRouter();
+  
+  const [userData, setUserData] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
 
   const [formData, setFormData] = useState({
     careType: 'In-Home Care',
@@ -27,23 +32,42 @@ export default function PostCareRequest() {
     { label: 'Urgent', color: 'bg-red-50 text-red-700 hover:bg-red-100' }
   ];
 
-  // THE REAL FIREBASE SUBMIT FUNCTION:
+  // 1. SECURELY GET THE LOGGED-IN PATIENT
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const docSnap = await getDoc(doc(db, 'users', user.uid));
+        if (docSnap.exists()) {
+          setUserData({ id: user.uid, ...docSnap.data() });
+        }
+        setPageLoading(false);
+      } else {
+        router.push('/login');
+      }
+    });
+    return () => unsubscribe();
+  }, [router]);
+
+  // 2. THE REAL FIREBASE SUBMIT FUNCTION
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     
     try {
-      // This sends the data to your Firestore Database!
+      // This sends the data AND the patient's identity to your Firestore Database!
       await addDoc(collection(db, "care_requests"), {
         ...formData,
-        status: "searching", // We add a status to track the booking phase
-        createdAt: serverTimestamp(), // Google automatically stamps the exact time
+        patientId: userData.id, // Links the job to the specific patient
+        patientName: userData.name || userData.full_name || "Patient",
+        patientPhoto: userData.photoURL || userData.avatar_url || "",
+        status: "searching", 
+        createdAt: serverTimestamp(),
       });
 
       setSubmitting(false);
       setSuccess(true);
       
-      // Route them to matches
+      // Route them back to their dashboard
       setTimeout(() => {
         router.push('/dashboard/patient');
       }, 2500);
@@ -57,6 +81,15 @@ export default function PostCareRequest() {
 
   const labelClass = "block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3";
   const inputClass = "w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-600 outline-none transition-all bg-[#fbfaf8] text-gray-900 font-medium text-base";
+
+  // LOADING STATE
+  if (pageLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#fdfcf9]">
+        <Loader2 className="w-12 h-12 animate-spin text-emerald-600" />
+      </div>
+    );
+  }
 
   // SUCCESS STATE
   if (success) {
@@ -76,16 +109,12 @@ export default function PostCareRequest() {
 
   return (
     <div className="min-h-screen bg-[#fdfcf9] font-sans flex justify-center items-center py-12 px-6">
-      
-      {/* WIDE DESKTOP CONTAINER */}
       <div className="max-w-6xl w-full bg-white rounded-[3rem] shadow-sm border border-gray-100 p-8 lg:p-16 flex flex-col lg:flex-row gap-12 lg:gap-24 relative">
         
-        {/* Back Button */}
         <button onClick={() => router.back()} className="absolute top-8 left-8 lg:top-12 lg:left-12 flex items-center text-gray-400 hover:text-gray-900 transition font-bold text-sm">
           <ArrowLeft className="w-5 h-5 mr-2" /> Back
         </button>
 
-        {/* LEFT COLUMN */}
         <div className="lg:w-5/12 flex flex-col justify-between mt-12 lg:mt-8">
           <div>
             <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">New Care Request</p>
@@ -98,11 +127,9 @@ export default function PostCareRequest() {
           </div>
         </div> 
 
-        {/* RIGHT COLUMN */}
         <div className="lg:w-7/12">
           <form onSubmit={handleSubmit} className="space-y-10">
             
-            {/* CARE TYPE */}
             <div>
               <label className={labelClass}>Care Type</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -123,7 +150,6 @@ export default function PostCareRequest() {
               </div>
             </div>
 
-            {/* ROLE & LOCATION */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className={labelClass}>Professional Role Needed</label>
@@ -151,7 +177,6 @@ export default function PostCareRequest() {
               </div>
             </div>
 
-            {/* URGENCY */}
             <div>
               <label className={labelClass}>Urgency</label>
               <div className="flex flex-col sm:flex-row gap-4">
@@ -172,7 +197,6 @@ export default function PostCareRequest() {
               </div>
             </div>
 
-            {/* DETAILS */}
             <div>
               <label className={labelClass}>Details</label>
               <textarea 
@@ -184,13 +208,12 @@ export default function PostCareRequest() {
               />
             </div>
 
-            {/* SUBMIT BUTTON */}
             <button 
               type="submit" 
               disabled={submitting} 
               className="w-full bg-[#0a271f] text-white font-bold text-xl py-6 rounded-2xl flex items-center justify-center transition hover:bg-black disabled:opacity-70 shadow-lg"
             >
-              {submitting ? <Loader2 className="w-7 h-7 animate-spin" /> : "Find My Match →"}
+              {submitting ? <Loader2 className="w-7 h-7 animate-spin" /> : "Post My Care Request →"}
             </button>
 
           </form>

@@ -8,6 +8,7 @@ import Image from 'next/image';
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { auth, googleProvider } from '../../lib/firebase';
 import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function Login() {
   const router = useRouter();
@@ -20,11 +21,20 @@ export default function Login() {
   const [errorMessage, setErrorMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleGoogleLogin = async () => {
+const handleGoogleLogin = async () => {
     setErrorMessage('');
     try {
-      await signInWithPopup(auth, googleProvider);
-      router.push('/dashboard');
+      const result = await signInWithPopup(auth, googleProvider);
+      
+      // CHECK DATABASE: Does this Google account already have a profile?
+      const userDocRef = doc(db, "users", result.user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        router.push('/dashboard'); // Old user, let them in
+      } else {
+        router.push(`/profile?setup=true&role=${roleParam || 'patient'}`); // Brand new user, force setup!
+      }
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -36,15 +46,24 @@ export default function Login() {
     setErrorMessage('');
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      router.push('/dashboard');
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      
+      // CHECK DATABASE for Email users too!
+      const userDocRef = doc(db, "users", result.user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        router.push('/dashboard');
+      } else {
+        router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
+      }
     } catch (error) {
       setErrorMessage("Invalid credentials. Please check your email and password.");
     } finally {
       setLoading(false);
     }
   };
-
+  
   const inputClass = "w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-600 focus:border-transparent outline-none transition-all bg-gray-50 focus:bg-white text-gray-900";
 
   return (

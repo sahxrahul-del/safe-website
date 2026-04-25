@@ -201,7 +201,14 @@ export default function Profile() {
                       {uploadingState['photo'] ? (
                           <div className="absolute inset-0 flex items-center justify-center bg-gray-100"><Loader2 className="animate-spin text-emerald-600 w-8 h-8" /></div>
                       ) : (
-                          <Image src={formData.avatar_url} alt="Profile" fill className="object-cover" unoptimized={formData.avatar_url.includes('http')} />
+                          <Image 
+  src={formData.avatar_url} 
+  alt="Profile" 
+  fill 
+  sizes="(max-width: 768px) 100vw, 150px" 
+  className="object-cover" 
+  unoptimized={formData.avatar_url.includes('http')} 
+/>
                       )}
                   </div>
                   <label className="absolute bottom-0 right-0 bg-emerald-600 text-white p-2.5 rounded-full shadow-lg cursor-pointer hover:bg-emerald-700 transition">
