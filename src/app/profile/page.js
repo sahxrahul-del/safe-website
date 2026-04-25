@@ -13,6 +13,7 @@ import { auth, db, storage } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import ChangePassword from '@/components/ChangePassword';
 
 export default function Profile() {
   const router = useRouter();
@@ -426,6 +427,20 @@ export default function Profile() {
             </button>
           </div>
         </form>
+        {/* NEW SECTION: SECURITY & PASSWORD */}
+        {!isSetup && !isGoogleLogin && (
+          <div className="mt-12 pt-12 border-t border-gray-200">
+            <div className="mb-8">
+              <h2 className="text-2xl font-black text-gray-900">Account Security</h2>
+              <p className="text-gray-500 mt-2 font-medium">Update your password to keep your account safe.</p>
+            </div>
+            
+            {/* The ChangePassword component you created earlier */}
+            <div className="flex justify-center md:justify-start">
+              <ChangePassword />
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
