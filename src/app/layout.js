@@ -1,5 +1,6 @@
 import "./globals.css";
 import Navbar from "../components/Navbar";
+import Footer from "../components/Footer"; 
 
 export default function RootLayout({ children }) {
   return (
@@ -9,9 +10,13 @@ export default function RootLayout({ children }) {
         className="bg-[#fdfcf9] antialiased min-h-screen flex flex-col"
       >
         <Navbar />
-        <div className="flex-grow flex flex-col">
+         
+       <div className="flex-grow flex flex-col">
           {children}
         </div>
+      
+        <Footer /> 
+        
       </body>
     </html>
   );

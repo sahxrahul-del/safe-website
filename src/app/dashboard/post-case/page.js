@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, UploadCloud, FileText } from 'lucide-react';
 
-// IMPORTING FIREBASE (Added auth & doc fetching)
-import { auth, db } from '@/lib/firebase'; 
+// IMPORTING FIREBASE
+import { auth, db, storage } from '@/lib/firebase'; 
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'; 
 
 export default function PostCareRequest() {
   const router = useRouter();
@@ -16,6 +17,10 @@ export default function PostCareRequest() {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  
+  // NEW: State for tracking the upload progress of multiple files
+  const [uploadingFile, setUploadingFile] = useState(false); 
+  const [medicalFiles, setMedicalFiles] = useState([]); // Array to hold actual File objects
 
   const [formData, setFormData] = useState({
     careType: 'In-Home Care',
@@ -23,6 +28,7 @@ export default function PostCareRequest() {
     location: '',
     urgency: 'This Week',
     details: ''
+    // Removed single medical_url from here, we will handle it in the submit function!
   });
 
   const careTypes = ['In-Home Care', 'Post-Surgical', 'Companionship', 'Facility Shift'];
@@ -48,18 +54,50 @@ export default function PostCareRequest() {
     return () => unsubscribe();
   }, [router]);
 
-  // 2. THE REAL FIREBASE SUBMIT FUNCTION
+  // 2. CAPTURE MULTIPLE FILES (Without uploading yet)
+  const handleFileChange = (e) => {
+    if (e.target.files) {
+      // Convert the FileList object into a standard JavaScript Array
+      const selectedFiles = Array.from(e.target.files);
+      setMedicalFiles(selectedFiles);
+    }
+  };
+
+  // 3. THE REAL FIREBASE SUBMIT FUNCTION (Now handles array of uploads)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     
     try {
-      // This sends the data AND the patient's identity to your Firestore Database!
+      let uploadedUrls = [];
+
+      // If they selected files, upload them all first
+      if (medicalFiles.length > 0) {
+        setUploadingFile(true); // Changes button text to "Uploading Files..."
+        
+        // Promise.all uploads all files in the array simultaneously for speed
+        uploadedUrls = await Promise.all(
+          medicalFiles.map(async (file, index) => {
+            const fileExt = file.name.split('.').pop();
+            // Added index to filename to ensure unique names if uploaded at the exact same millisecond
+            const fileName = `medical_${userData.id}_${Date.now()}_${index}.${fileExt}`;
+            const storageRef = ref(storage, `medical_records/${fileName}`);
+            
+            await uploadBytesResumable(storageRef, file);
+            return await getDownloadURL(storageRef);
+          })
+        );
+        
+        setUploadingFile(false);
+      }
+
+      // Now create the main document and attach the array of URLs
       await addDoc(collection(db, "care_requests"), {
         ...formData,
-        patientId: userData.id, // Links the job to the specific patient
+        patientId: userData.id, 
         patientName: userData.name || userData.full_name || "Patient",
         patientPhoto: userData.photoURL || userData.avatar_url || "",
+        medical_urls: uploadedUrls, // NEW: Saves the array of URLs to the database!
         status: "searching", 
         createdAt: serverTimestamp(),
       });
@@ -67,7 +105,6 @@ export default function PostCareRequest() {
       setSubmitting(false);
       setSuccess(true);
       
-      // Route them back to their dashboard
       setTimeout(() => {
         router.push('/dashboard/patient');
       }, 2500);
@@ -76,6 +113,7 @@ export default function PostCareRequest() {
       console.error("Error posting case: ", error);
       alert("Failed to post request. Check your database connection.");
       setSubmitting(false);
+      setUploadingFile(false);
     }
   };
 
@@ -122,7 +160,7 @@ export default function PostCareRequest() {
               What kind of <br/>care do you <span className="text-emerald-600 italic">need?</span>
             </h1>
             <p className="text-lg text-gray-500 leading-relaxed">
-              Describe your need and we'll instantly match you with verified, available professionals in your neighborhood.
+              Describe your need and attach any relevant medical documents. We'll instantly match you with verified professionals.
             </p>
           </div>
         </div> 
@@ -208,12 +246,45 @@ export default function PostCareRequest() {
               />
             </div>
 
+            {/* UPGRADED: MULTIPLE MEDICAL FILE UPLOAD */}
+            <div className="pt-4 border-t border-gray-100">
+              <label className={labelClass}>Medical Documents / Prescriptions (Optional)</label>
+              <label className={`mt-2 inline-flex w-full items-center justify-center px-6 py-6 border-2 border-dashed rounded-xl cursor-pointer transition ${medicalFiles.length > 0 ? 'bg-emerald-50 border-emerald-600 text-emerald-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                  <UploadCloud className="w-6 h-6 mr-3 text-emerald-600"/>
+                  <span className="font-bold text-sm">
+                    {medicalFiles.length > 0 ? `${medicalFiles.length} file(s) selected (Click to change)` : "Click to select Medical Files (PDF/Image)"}
+                  </span>
+                  {/* Notice the 'multiple' attribute here! */}
+                  <input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
+              </label>
+
+              {/* Display the names of the files they just selected */}
+              {medicalFiles.length > 0 && (
+                <div className="mt-4 space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Selected Files:</p>
+                  {medicalFiles.map((file, index) => (
+                    <p key={index} className="text-sm font-bold text-emerald-700 flex items-center">
+                      <FileText className="w-4 h-4 mr-2" /> {file.name}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* DYNAMIC BUTTON TEXT based on upload state */}
             <button 
               type="submit" 
-              disabled={submitting} 
+              disabled={submitting || uploadingFile} 
               className="w-full bg-[#0a271f] text-white font-bold text-xl py-6 rounded-2xl flex items-center justify-center transition hover:bg-black disabled:opacity-70 shadow-lg"
             >
-              {submitting ? <Loader2 className="w-7 h-7 animate-spin" /> : "Post My Care Request →"}
+              {submitting || uploadingFile ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin mr-3" /> 
+                  {uploadingFile ? "Uploading Secure Files..." : "Matching Providers..."}
+                </>
+              ) : (
+                "Post My Care Request →"
+              )}
             </button>
 
           </form>

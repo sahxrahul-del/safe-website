@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
-import { auth, googleProvider } from '../../lib/firebase';
+import { auth, db, googleProvider } from '../../lib/firebase';
 import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -31,11 +31,20 @@ const handleGoogleLogin = async () => {
       const userDocSnap = await getDoc(userDocRef);
 
       if (userDocSnap.exists()) {
-        router.push('/dashboard'); // Old user, let them in
+        // SMART ROUTING BASED ON ROLE
+        const userData = userDocSnap.data();
+        if (userData.role === 'admin') {
+          router.push('/admin');
+        } else if (userData.role === 'nurse' || userData.role === 'provider') {
+          router.push('/dashboard/nurse');
+        } else {
+          router.push('/dashboard/patient');
+        }
       } else {
-        router.push(`/profile?setup=true&role=${roleParam || 'patient'}`); // Brand new user, force setup!
+        router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
       }
     } catch (error) {
+      console.error("Google Login Error:", error);
       setErrorMessage(error.message);
     }
   };
@@ -53,17 +62,26 @@ const handleGoogleLogin = async () => {
       const userDocSnap = await getDoc(userDocRef);
 
       if (userDocSnap.exists()) {
-        router.push('/dashboard');
+        // SMART ROUTING BASED ON ROLE
+        const userData = userDocSnap.data();
+        if (userData.role === 'admin') {
+          router.push('/admin');
+        } else if (userData.role === 'nurse' || userData.role === 'provider') {
+          router.push('/dashboard/nurse');
+        } else {
+          router.push('/dashboard/patient');
+        }
       } else {
         router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
       }
     } catch (error) {
+      console.error("Actual Login Error:", error);
       setErrorMessage("Invalid credentials. Please check your email and password.");
     } finally {
       setLoading(false);
     }
   };
-  
+    
   const inputClass = "w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-600 focus:border-transparent outline-none transition-all bg-gray-50 focus:bg-white text-gray-900";
 
   return (

@@ -1,24 +1,67 @@
-export default function NurseCard({ name, specialty, rate, rating, reviews }) {
+import Link from 'next/link';
+import { Star, MapPin } from 'lucide-react';
+
+// Added default values in the parameters just in case they are undefined!
+export default function NurseCard({ 
+  id, 
+  name = "Verified Provider", 
+  specialty = "Care Professional", 
+  rate = "Negotiable", 
+  rating = "New", 
+  reviews = 0,
+  location = "Nepal",
+  photo = null
+}) {
+  
+  // Safely get the first initial. If name is somehow still empty, default to "P"
+  const initial = name ? name.charAt(0).toUpperCase() : "P";
+
   return (
-    <div className="bg-white dark:bg-gray-800 p-6 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col items-center text-center hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-      <div className="w-20 h-20 bg-emerald-50 dark:bg-gray-700 rounded-full flex items-center justify-center mb-4 border-4 border-white dark:border-gray-600 shadow-sm">
-        <span className="text-emerald-700 dark:text-emerald-400 font-extrabold text-2xl">{name[0]}</span>
+    <div className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-gray-100 flex flex-col items-center text-center hover:shadow-md transition-shadow relative overflow-hidden group">
+      
+      {/* Avatar / Photo */}
+      <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-4 border-4 border-white shadow-sm overflow-hidden text-emerald-700 font-extrabold text-2xl z-10 shrink-0">
+        {photo ? (
+          <img src={photo} alt={name} className="w-full h-full object-cover" />
+        ) : (
+          <span>{initial}</span>
+        )}
       </div>
       
-      <h3 className="text-lg font-bold text-gray-900 dark:text-white">{name}</h3>
-      <p className="text-xs text-emerald-700 dark:text-emerald-400 font-bold mb-2 uppercase tracking-wider">{specialty}</p>
+      {/* Name & Specialty */}
+      <h3 className="text-xl font-black text-gray-900 mb-1 z-10 truncate w-full px-2">{name}</h3>
+      <p className="text-emerald-600 font-bold text-sm mb-4 z-10 truncate w-full">{specialty}</p>
       
-      <div className="flex items-center gap-1 mb-4">
-        <div className="text-yellow-400 text-sm tracking-tighter">★★★★★</div>
-        <span className="text-sm font-bold text-gray-800 dark:text-gray-200 ml-1">{rating}</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">({reviews})</span>
+      {/* Stats Grid */}
+      <div className="w-full grid grid-cols-2 gap-2 mb-6 border-t border-gray-50 pt-4 z-10">
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Rate</p>
+          <p className="font-black text-gray-900">Rs. {rate}<span className="text-xs text-gray-500 font-medium">/hr</span></p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Rating</p>
+          <p className="font-black text-gray-900 flex items-center justify-center">
+            <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 mr-1" /> {rating} 
+            <span className="text-xs text-gray-500 font-medium ml-1">({reviews})</span>
+          </p>
+        </div>
+      </div>
+      
+      {/* Location */}
+      <div className="w-full flex items-center justify-center text-xs font-bold text-gray-500 mb-6 bg-gray-50 py-2 rounded-lg z-10">
+        <MapPin className="w-3.5 h-3.5 mr-1" /> {location}
       </div>
 
-      <p className="text-gray-600 dark:text-gray-300 font-semibold mb-6">Rs. {rate} <span className="text-sm font-normal text-gray-400">/ hr</span></p>
-      
-      <button className="w-full bg-[#0a271f] dark:bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-800 dark:hover:bg-emerald-500 transition-colors shadow-md">
+      {/* Action Button */}
+      <Link 
+        href={id ? `/nurses/${id}` : `/find-providers`} 
+        className="w-full bg-[#fdfcf9] border-2 border-gray-100 text-gray-900 py-3 rounded-xl font-bold hover:border-emerald-600 hover:text-emerald-700 transition z-10"
+      >
         View Profile
-      </button>
+      </Link>
+      
+      {/* Decorative hover background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent to-emerald-50/50 opacity-0 group-hover:opacity-100 transition-opacity z-0"></div>
     </div>
   );
 }

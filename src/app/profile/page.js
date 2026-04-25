@@ -32,7 +32,7 @@ export default function Profile() {
     province: '', district: '', city_zone: '', address: '',
     
     // Nurse Specific
-    licenseNumber: '', specialty: '', experience: '', hourlyRate: '', bio: '', cv_url: '',
+    licenseNumber: '', specialty: '', experience: '', hourlyRate: '', bio: '', cv_url: '',license_url: '',
     // New Education & Certificates
     education_slc: '', cert_slc_url: '',
     education_plus2: '', cert_plus2_url: '',
@@ -80,6 +80,7 @@ export default function Profile() {
           licenseNumber: profile.licenseNumber || '', specialty: profile.specialty || '',
           experience: profile.experience || '', hourlyRate: profile.hourlyRate || '', 
           bio: profile.bio || '', cv_url: profile.cv_url || '',
+          license_url: profile.license_url || '',
           
           education_slc: profile.education_slc || '', cert_slc_url: profile.cert_slc_url || '',
           education_plus2: profile.education_plus2 || '', cert_plus2_url: profile.cert_plus2_url || '',

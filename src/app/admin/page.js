@@ -2,277 +2,546 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import { auth, db } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { 
-  Users, UserCheck, Activity, ShieldCheck, 
-  Search, CheckCircle, XCircle, Star, FileText, 
-  MapPin, Phone, Mail, Loader2 
+  collection, query, onSnapshot, doc, getDoc, updateDoc 
+} from 'firebase/firestore';
+import { 
+  ShieldAlert, Users, Activity, CheckCircle, 
+  FileText, Star, Loader2, LayoutDashboard, 
+  ShieldCheck, ArrowRight, Eye, X, MapPin, 
+  Phone, Mail, Briefcase, GraduationCap, XCircle, AlertCircle 
 } from 'lucide-react';
-import { db } from '../../lib/firebase';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 
 export default function AdminDashboard() {
   const router = useRouter();
+  
   const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState([]);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'nurses', 'patients'
-  const [selectedNurse, setSelectedNurse] = useState(null);
+  const [adminAuth, setAdminAuth] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
+  
+  // Data States
+  const [nurses, setNurses] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [viewPatient, setViewPatient] = useState(null);
+  
+  const [viewProvider, setViewProvider] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [rejectModal, setRejectModal] = useState({ isOpen: false, provider: null, reason: '' });
+  const [rejecting, setRejecting] = useState(false);
 
-  // Fetch all users from Firestore
-  const fetchUsers = async () => {
-    setLoading(true);
-    try {
-      const querySnapshot = await getDocs(collection(db, "users"));
-      const usersList = [];
-      querySnapshot.forEach((doc) => {
-        usersList.push({ id: doc.id, ...doc.data() });
-      });
-      setUsers(usersList);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // ==========================================
+  // 1. SECURITY GATEKEEPER & DATA FETCHING
+  // ==========================================
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        router.push('/login');
+        return;
+      }
 
-  // Filter Data
-  const nurses = users.filter(u => u.role === 'nurse');
-  const patients = users.filter(u => u.role === 'patient');
-  const pendingNurses = nurses.filter(n => n.status === 'pending' || !n.status);
-  const featuredNurses = nurses.filter(n => n.isFeatured === true);
+      const userDocRef = doc(db, "users", currentUser.uid);
+      const userDocSnap = await getDoc(userDocRef);
 
-  // Handle Admin Actions (Approve, Reject, Feature)
-  const handleNurseAction = async (nurseId, actionType, extraData = {}) => {
+      if (userDocSnap.exists()) {
+        const data = userDocSnap.data();
+        
+        // STRICT ADMIN CHECK
+        if (data.role !== 'admin') {
+          router.push('/dashboard/patient'); 
+          return;
+        }
+        
+        setAdminAuth(data);
+
+        // Fetch All Users
+        const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+          const allUsers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          
+          const registeredNurses = allUsers.filter(u => u.role === 'nurse' || u.role === 'provider');
+          const registeredPatients = allUsers.filter(u => u.role === 'patient' || u.role === 'family');
+          
+          // Sort nurses: Unverified ones bubble to the top
+          registeredNurses.sort((a, b) => (a.isVerified === b.isVerified) ? 0 : a.isVerified ? 1 : -1);
+
+          setNurses(registeredNurses);
+          setPatients(registeredPatients);
+        });
+
+        // Fetch All Jobs
+        const unsubJobs = onSnapshot(collection(db, "care_requests"), (snapshot) => {
+          setJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+          setLoading(false);
+        });
+
+        return () => {
+          unsubUsers();
+          unsubJobs();
+        };
+      } else {
+        router.push('/login');
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, [router]);
+
+  // ==========================================
+  // 2. ADMIN ACTIONS
+  // ==========================================
+  const toggleVerification = async (nurseId, currentStatus) => {
     setActionLoading(true);
     try {
-      const nurseRef = doc(db, "users", nurseId);
-      let updates = {};
-
-      if (actionType === 'approve') updates = { status: 'approved' };
-      if (actionType === 'reject') updates = { status: 'rejected' }; // Later we will add rejection reason here
-      if (actionType === 'feature') updates = { isFeatured: !selectedNurse.isFeatured };
-
-      await updateDoc(nurseRef, updates);
-      
-      // Update local state to reflect changes instantly
-      setUsers(users.map(u => u.id === nurseId ? { ...u, ...updates } : u));
-      setSelectedNurse({ ...selectedNurse, ...updates });
+      await updateDoc(doc(db, "users", nurseId), { 
+        isVerified: !currentStatus,
+        accountStatus: !currentStatus ? 'approved' : 'pending',
+        rejectionReason: null // Clears any old rejection messages
+      });
+      if (viewProvider && viewProvider.id === nurseId) {
+        setViewProvider({ ...viewProvider, isVerified: !currentStatus });
+      }
     } catch (error) {
-      console.error("Action failed:", error);
+      console.error("Error updating verification:", error);
     } finally {
       setActionLoading(false);
     }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#fdfcf9]"><Loader2 className="animate-spin text-[#0a271f] w-10 h-10" /></div>;
+  const handleRejectSubmit = async (e) => {
+    e.preventDefault();
+    setRejecting(true);
+    try {
+      await updateDoc(doc(db, "users", rejectModal.provider.id), {
+        isVerified: false,
+        accountStatus: 'rejected',
+        rejectionReason: rejectModal.reason
+      });
+      setRejectModal({ isOpen: false, provider: null, reason: '' });
+      setViewProvider(null); // Closes the profile view
+    } catch (error) {
+      console.error("Error rejecting:", error);
+    } finally {
+      setRejecting(false);
+    }
+  };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans">
-      
-      {/* SIDEBAR NAVIGATION */}
-      <aside className="w-full md:w-64 bg-[#0a271f] text-emerald-50 flex flex-col shadow-xl z-20">
-        <div className="p-6 border-b border-emerald-900">
-          <div className="text-2xl font-black font-serif text-emerald-400">Safe Home.</div>
-          <p className="text-xs text-emerald-200 mt-1 uppercase tracking-widest font-bold">Admin Portal</p>
-        </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <button onClick={() => setActiveTab('overview')} className={`w-full flex items-center p-3 rounded-lg font-bold transition ${activeTab === 'overview' ? 'bg-emerald-800 text-white' : 'hover:bg-emerald-900/50 text-emerald-200'}`}>
-            <Activity className="w-5 h-5 mr-3" /> Overview
-          </button>
-          <button onClick={() => setActiveTab('nurses')} className={`w-full flex items-center p-3 rounded-lg font-bold transition ${activeTab === 'nurses' ? 'bg-emerald-800 text-white' : 'hover:bg-emerald-900/50 text-emerald-200'}`}>
-            <ShieldCheck className="w-5 h-5 mr-3" /> Care Providers
-            {pendingNurses.length > 0 && <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{pendingNurses.length}</span>}
-          </button>
-          <button onClick={() => setActiveTab('patients')} className={`w-full flex items-center p-3 rounded-lg font-bold transition ${activeTab === 'patients' ? 'bg-emerald-800 text-white' : 'hover:bg-emerald-900/50 text-emerald-200'}`}>
-            <Users className="w-5 h-5 mr-3" /> Patients
-          </button>
-        </nav>
-      </aside>
+  const toggleFeatured = async (nurseId, currentStatus) => {
+    setActionLoading(true);
+    try {
+      await updateDoc(doc(db, "users", nurseId), { isFeatured: !currentStatus });
+      if (viewProvider && viewProvider.id === nurseId) {
+        setViewProvider({ ...viewProvider, isFeatured: !currentStatus });
+      }
+    } catch (error) {
+      console.error("Error updating featured status:", error);
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-[#fdfcf9]">
-        
-        {/* --- TAB 1: OVERVIEW (God View Analytics) --- */}
-        {activeTab === 'overview' && (
-          <div className="p-8 overflow-y-auto h-full">
-            <h1 className="text-3xl font-extrabold text-gray-900 mb-8">Platform Analytics</h1>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center">
-                <div className="p-4 bg-emerald-50 rounded-xl text-emerald-700 mr-4"><ShieldCheck className="w-8 h-8"/></div>
-                <div><p className="text-sm font-bold text-gray-500 uppercase">Total Nurses</p><p className="text-3xl font-black text-gray-900">{nurses.length}</p></div>
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center">
-                <div className="p-4 bg-blue-50 rounded-xl text-blue-700 mr-4"><Users className="w-8 h-8"/></div>
-                <div><p className="text-sm font-bold text-gray-500 uppercase">Total Patients</p><p className="text-3xl font-black text-gray-900">{patients.length}</p></div>
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center">
-                <div className="p-4 bg-amber-50 rounded-xl text-amber-600 mr-4"><UserCheck className="w-8 h-8"/></div>
-                <div><p className="text-sm font-bold text-gray-500 uppercase">Pending Approval</p><p className="text-3xl font-black text-gray-900">{pendingNurses.length}</p></div>
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center">
-                <div className="p-4 bg-purple-50 rounded-xl text-purple-700 mr-4"><Star className="w-8 h-8"/></div>
-                <div><p className="text-sm font-bold text-gray-500 uppercase">Featured Profiles</p><p className="text-3xl font-black text-gray-900">{featuredNurses.length}</p></div>
-              </div>
-            </div>
+  // ==========================================
+  // 3. UI RENDERERS
+  // ==========================================
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4f7f6]">
+        <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mb-4" />
+        <p className="text-gray-500 font-bold">Verifying Admin Credentials...</p>
+      </div>
+    );
+  }
+
+  const pendingCount = nurses.filter(n => !n.isVerified).length;
+
+  const renderOverview = () => (
+    <div className="animate-in fade-in duration-300 space-y-6 max-w-6xl">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Providers</span> <ShieldCheck className="w-5 h-5"/></div>
+            <div><p className="text-3xl font-black text-gray-900">{nurses.length}</p></div>
           </div>
-        )}
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Patients</span> <Users className="w-5 h-5"/></div>
+            <div><p className="text-3xl font-black text-gray-900">{patients.length}</p></div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Jobs</span> <Briefcase className="w-5 h-5"/></div>
+            <div><p className="text-3xl font-black text-gray-900">{jobs.length}</p></div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-amber-200 bg-amber-50 shadow-sm flex flex-col justify-between cursor-pointer hover:bg-amber-100 transition" onClick={() => setActiveTab('providers')}>
+            <div className="flex justify-between items-start text-amber-700 mb-4"><span className="text-sm font-bold">Pending Approvals</span> <AlertCircle className="w-5 h-5"/></div>
+            <div><p className="text-3xl font-black text-amber-900">{pendingCount}</p></div>
+          </div>
+      </div>
+    </div>
+  );
 
-        {/* --- TAB 2: NURSES (Split-Screen Viewer) --- */}
-        {activeTab === 'nurses' && (
-          <div className="flex h-full w-full overflow-hidden">
-            
-            {/* LEFT SIDE: Applicant List */}
-            <div className="w-1/3 bg-white border-r border-gray-200 flex flex-col h-full">
-              <div className="p-4 border-b border-gray-100 bg-gray-50">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                  <input type="text" placeholder="Search nurses..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-600" />
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {nurses.map(nurse => (
-                  <button key={nurse.id} onClick={() => setSelectedNurse(nurse)} className={`w-full text-left p-4 rounded-xl flex items-center transition ${selectedNurse?.id === nurse.id ? 'bg-emerald-50 border border-emerald-200' : 'hover:bg-gray-50 border border-transparent'}`}>
-                    <div className="w-12 h-12 rounded-full bg-gray-200 overflow-hidden relative shrink-0">
-                      <Image src={nurse.avatar_url || '/default-avatar.png'} fill className="object-cover" alt="avatar" />
-                    </div>
-                    <div className="ml-3 overflow-hidden">
-                      <p className="font-bold text-gray-900 truncate">{nurse.full_name || 'Unnamed User'}</p>
-                      <p className="text-xs text-gray-500 truncate">{nurse.specialty || 'No Specialty'}</p>
-                      <div className="mt-1 flex gap-2">
-                        {nurse.status === 'approved' && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">Approved</span>}
-                        {(nurse.status === 'pending' || !nurse.status) && <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">Pending</span>}
-                        {nurse.status === 'rejected' && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">Rejected</span>}
-                        {nurse.isFeatured && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold flex items-center"><Star className="w-3 h-3 mr-0.5"/> Featured</span>}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* RIGHT SIDE: Profile & CV Details */}
-            <div className="w-2/3 bg-[#fdfcf9] h-full overflow-y-auto">
-              {selectedNurse ? (
-                <div className="p-8 max-w-4xl mx-auto">
-                  
-                  {/* Header Actions */}
-                  <div className="flex justify-between items-start mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                    <div className="flex items-center">
-                      <div className="w-20 h-20 rounded-full bg-gray-200 overflow-hidden relative mr-5 shadow-sm">
-                        <Image src={selectedNurse.avatar_url || '/default-avatar.png'} fill className="object-cover" alt="avatar" />
+  const renderProviders = () => (
+    <div className="animate-in fade-in duration-300 max-w-6xl">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-50 flex justify-between items-center bg-[#fdfcf9]">
+          <h3 className="font-bold text-gray-900">Provider Database</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 text-gray-400 text-xs uppercase font-bold tracking-wider">
+              <tr>
+                <th className="p-5 pl-6">Provider Info</th>
+                <th className="p-5">Location</th>
+                <th className="p-5">Status</th>
+                <th className="p-5 text-right pr-6">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {nurses.map(nurse => (
+                <tr key={nurse.id} className="hover:bg-gray-50/50 transition">
+                  <td className="p-5 pl-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold overflow-hidden shrink-0 border-2 border-white shadow-sm">
+                        {nurse.avatar_url && !nurse.avatar_url.includes('default') ? <img src={nurse.avatar_url} className="w-full h-full object-cover"/> : (nurse.name || nurse.full_name || "N").charAt(0)}
                       </div>
                       <div>
-                        <h2 className="text-2xl font-extrabold text-gray-900">{selectedNurse.full_name}</h2>
-                        <p className="text-emerald-700 font-bold">{selectedNurse.specialty}</p>
-                        <p className="text-sm text-gray-500 flex items-center mt-1"><MapPin className="w-4 h-4 mr-1"/> {selectedNurse.city_zone}, {selectedNurse.district}</p>
+                        <p className="font-bold text-gray-900">{nurse.name || nurse.full_name || 'Unnamed'}</p>
+                        <p className="text-xs text-gray-500 font-medium">{nurse.specialty || nurse.role}</p>
                       </div>
                     </div>
+                  </td>
+                  <td className="p-5">
+                    <p className="text-sm text-gray-600 font-medium">{nurse.location || nurse.district || 'Not Set'}</p>
+                  </td>
+                  <td className="p-5">
+                    {nurse.isVerified ? (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-200">Verified</span>
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200">Pending</span>
+                    )}
+                    {nurse.isFeatured && (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-purple-50 text-purple-700 border border-purple-200 ml-2"><Star className="w-3 h-3 mr-1 fill-purple-700"/> Featured</span>
+                    )}
+                  </td>
+                  <td className="p-5 text-right pr-6">
+                    <button onClick={() => setViewProvider(nurse)} className="inline-flex items-center px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-bold text-sm hover:border-emerald-300 hover:text-emerald-700 transition shadow-sm">
+                      <Eye className="w-4 h-4 mr-2"/> Review
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
 
-                    <div className="flex flex-col gap-2">
-                      <div className="flex gap-2">
-                        <button onClick={() => handleNurseAction(selectedNurse.id, 'approve')} disabled={actionLoading} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold flex items-center text-sm shadow-sm transition disabled:opacity-50">
-                          <CheckCircle className="w-4 h-4 mr-1.5"/> Approve
-                        </button>
-                        <button onClick={() => handleNurseAction(selectedNurse.id, 'reject')} disabled={actionLoading} className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-2 rounded-lg font-bold flex items-center text-sm transition disabled:opacity-50">
-                          <XCircle className="w-4 h-4 mr-1.5"/> Reject
-                        </button>
+  const renderPatients = () => (
+    <div className="animate-in fade-in duration-300 max-w-6xl">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-50 flex justify-between items-center bg-[#fdfcf9]">
+          <h3 className="font-bold text-gray-900">Registered Patients</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 text-gray-400 text-xs uppercase font-bold tracking-wider">
+              <tr>
+                <th className="p-5 pl-6">Patient Name</th>
+                <th className="p-5">Contact</th>
+                <th className="p-5">Location</th>
+                <th className="p-5">Care Recipient</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {patients.map(patient => (
+                <tr key={patient.id} className="hover:bg-gray-50/50 transition cursor-pointer" onClick={() => setViewPatient(patient)}>
+                  <td className="p-5 pl-6 font-bold text-gray-900">{patient.full_name || 'Unnamed'}</td>
+                  <td className="p-5">
+                    <p className="text-sm text-gray-900">{patient.phone || 'No phone'}</p>
+                    <p className="text-xs text-gray-500">{patient.email}</p>
+                  </td>
+                  <td className="p-5 text-sm text-gray-600">{patient.city_zone || patient.district || 'Not Set'}</td>
+                  <td className="p-5">
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest bg-blue-50 text-blue-700">
+                      {patient.careRecipient || 'Self'}
+                    </span>
+                  </td>
+                  <td className="p-5 text-right pr-6">
+                    <button className="p-2 bg-gray-50 text-gray-400 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition"><Eye className="w-4 h-4"/></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ==========================================
+  // MASTER RENDER
+  // ==========================================
+  return (
+    <div className="flex h-screen bg-[#f4f7f6] font-sans overflow-hidden">
+      
+      {/* LEFT SIDEBAR (NURSE UI MATCH) */}
+      <aside className="hidden lg:flex w-64 bg-white border-r border-gray-100 flex-col h-full shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
+        <div className="p-6 border-b border-gray-50">
+          <div className="flex items-center gap-3 mb-2">
+            <ShieldAlert className="w-8 h-8 text-emerald-600" />
+            <h2 className="text-xl font-black font-serif text-gray-900">Safe Home.</h2>
+          </div>
+          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">God Mode Activated</p>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto py-6 px-4">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4 px-4">Master Control</p>
+          <nav className="space-y-1">
+            <button onClick={() => setActiveTab('overview')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'overview' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+              <LayoutDashboard className="w-5 h-5 mr-3" /> Dashboard
+            </button>
+            <button onClick={() => setActiveTab('providers')} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'providers' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+              <span className="flex items-center"><ShieldCheck className="w-5 h-5 mr-3" /> Providers</span>
+              {pendingCount > 0 && <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full">{pendingCount}</span>}
+            </button>
+            <button onClick={() => setActiveTab('patients')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'patients' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+              <Users className="w-5 h-5 mr-3" /> Patients
+            </button>
+          </nav>
+        </div>
+        
+        <div className="p-4 border-t border-gray-50 bg-gray-50/50">
+          <button onClick={() => router.push('/dashboard/patient')} className="w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-50 transition shadow-sm">
+            Exit Admin
+          </button>
+        </div>
+      </aside>
+
+      {/* DYNAMIC TAB RENDERING */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <header className="bg-white border-b border-gray-100 p-6 flex justify-between items-center shrink-0 z-10">
+           <div>
+             <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Admin Portal</p>
+             <h2 className="text-2xl font-black text-gray-900 font-serif">Hello, {adminAuth?.name || adminAuth?.full_name?.split(' ')[0] || 'Admin'} 👋</h2>
+           </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-6 md:p-8">
+          {activeTab === 'overview' && renderOverview()}
+          {activeTab === 'providers' && renderProviders()}
+          {activeTab === 'patients' && renderPatients()}
+        </main>
+      </div>
+
+      {viewProvider && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm animate-in fade-in" onClick={() => setViewProvider(null)}></div>
+            <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95">
+                
+                {/* Modal Header */}
+                <div className="bg-[#fdfcf9] p-6 border-b border-gray-100 flex justify-between items-start shrink-0">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-black text-xl overflow-hidden shrink-0 border-2 border-white shadow-sm">
+                        {viewProvider.avatar_url && !viewProvider.avatar_url.includes('default') ? <img src={viewProvider.avatar_url} className="w-full h-full object-cover"/> : (viewProvider.name || viewProvider.full_name || "N").charAt(0)}
                       </div>
-                      <button onClick={() => handleNurseAction(selectedNurse.id, 'feature')} disabled={actionLoading || selectedNurse.status !== 'approved'} className={`px-4 py-2 rounded-lg font-bold flex items-center justify-center text-sm transition disabled:opacity-50 border ${selectedNurse.isFeatured ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
-                        <Star className={`w-4 h-4 mr-1.5 ${selectedNurse.isFeatured ? 'fill-current' : ''}`}/> {selectedNurse.isFeatured ? 'Unfeature Profile' : 'Feature on Homepage'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Body Details Split */}
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    {/* Data Details */}
-                    <div className="space-y-6">
-                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-                        <h3 className="font-bold text-gray-900 border-b pb-2 uppercase text-xs tracking-wider">Professional Info</h3>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div><p className="text-gray-500">License (NMC)</p><p className="font-bold">{selectedNurse.licenseNumber || 'N/A'}</p></div>
-                          <div><p className="text-gray-500">Experience</p><p className="font-bold">{selectedNurse.experience} Years</p></div>
-                          <div><p className="text-gray-500">Hourly Rate</p><p className="font-bold">NPR {selectedNurse.hourlyRate}/hr</p></div>
-                          <div><p className="text-gray-500">Availability</p><p className="font-bold">{selectedNurse.availability || 'N/A'}</p></div>
-                        </div>
-                        <div><p className="text-gray-500 text-sm">Education</p><p className="font-bold text-sm">{selectedNurse.education || 'N/A'}</p></div>
-                        <div><p className="text-gray-500 text-sm">Bio</p><p className="text-sm bg-gray-50 p-3 rounded-lg mt-1">{selectedNurse.bio || 'No bio provided.'}</p></div>
-                      </div>
-
-                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-                        <h3 className="font-bold text-gray-900 border-b pb-2 uppercase text-xs tracking-wider">Contact Info</h3>
-                        <div className="space-y-3">
-                          <p className="flex items-center text-sm"><Phone className="w-4 h-4 text-gray-400 mr-3"/> <span className="font-bold">{selectedNurse.phone}</span></p>
-                          <p className="flex items-center text-sm"><Mail className="w-4 h-4 text-gray-400 mr-3"/> <span className="font-bold">{selectedNurse.email}</span></p>
-                          <p className="flex items-center text-sm"><MapPin className="w-4 h-4 text-gray-400 mr-3"/> <span className="font-bold">{selectedNurse.address}, {selectedNurse.ward}</span></p>
-                        </div>
+                      <div>
+                        <h3 className="text-2xl font-black text-gray-900 font-serif">{viewProvider.name || viewProvider.full_name}</h3>
+                        <p className="text-emerald-700 font-bold text-sm">{viewProvider.specialty || viewProvider.role}</p>
                       </div>
                     </div>
-
-                    {/* PDF CV Embed */}
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col h-[600px]">
-                      <h3 className="font-bold text-gray-900 border-b pb-2 uppercase text-xs tracking-wider mb-4 flex items-center">
-                        <FileText className="w-4 h-4 mr-2"/> Attached CV / Resume
-                      </h3>
-                      {selectedNurse.cv_url ? (
-                        <iframe src={selectedNurse.cv_url} className="w-full flex-1 rounded-lg border border-gray-200" title="CV PDF Viewer"></iframe>
-                      ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                          <FileText className="w-12 h-12 text-gray-300 mb-2"/>
-                          <p className="text-gray-500 font-medium">No CV uploaded</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
+                    <button onClick={() => setViewProvider(null)} className="p-2 bg-gray-100 rounded-full text-gray-400 hover:text-gray-900 hover:bg-gray-200 transition"><X className="w-5 h-5"/></button>
                 </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                  <ShieldCheck className="w-16 h-16 mb-4 text-gray-300" />
-                  <p className="text-lg font-bold">Select an application to review</p>
+
+                {/* Modal Body */}
+                <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30 custom-scrollbar">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        
+                        {/* Info Column */}
+                        <div className="space-y-6">
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                                <h4 className="font-bold text-gray-900 mb-4 flex items-center"><MapPin className="w-4 h-4 mr-2 text-gray-400"/> Contact & Location</h4>
+                                <div className="space-y-3 text-sm">
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Email</span> <span className="font-bold text-gray-900">{viewProvider.email || '-'}</span></p>
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Phone</span> <span className="font-bold text-gray-900">{viewProvider.phone || '-'}</span></p>
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">District</span> <span className="font-bold text-gray-900">{viewProvider.district || viewProvider.location || '-'}</span></p>
+                                    <p className="flex justify-between"><span className="text-gray-500 font-medium">Hourly Rate</span> <span className="font-bold text-emerald-700">Rs. {viewProvider.hourlyRate || 'Not Set'}</span></p>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                                <h4 className="font-bold text-gray-900 mb-4 flex items-center"><GraduationCap className="w-4 h-4 mr-2 text-gray-400"/> Credentials</h4>
+                                <div className="space-y-3 text-sm">
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">NMC License</span> <span className="font-bold text-gray-900">{viewProvider.licenseNumber || 'Not provided'}</span></p>
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Experience</span> <span className="font-bold text-gray-900">{viewProvider.experience ? `${viewProvider.experience} Years` : '-'}</span></p>
+                                    <p className="text-gray-500 font-medium mt-4">Professional Bio</p>
+                                    <p className="bg-gray-50 p-3 rounded-xl text-gray-700 italic border border-gray-100">{viewProvider.bio || 'No bio provided.'}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Document & Actions Column */}
+                        <div className="space-y-6 flex flex-col">
+                            
+                            {/* Action Buttons */}
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col gap-3">
+                                <button 
+                                    onClick={() => toggleVerification(viewProvider.id, viewProvider.isVerified)}
+                                    disabled={actionLoading}
+                                    className={`w-full py-4 rounded-xl font-black transition flex items-center justify-center shadow-sm ${viewProvider.isVerified ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-[#0a271f] text-white hover:bg-black'}`}
+                                >
+                                    {actionLoading ? <Loader2 className="w-5 h-5 animate-spin"/> : (viewProvider.isVerified ? <><XCircle className="w-5 h-5 mr-2"/> Revoke Verification</> : <><CheckCircle className="w-5 h-5 mr-2"/> Approve & Verify</>)}
+                                </button>
+
+                                {/* NEW: REJECT BUTTON */}
+                                {!viewProvider.isVerified && (
+                                  <button 
+                                      onClick={() => setRejectModal({ isOpen: true, provider: viewProvider, reason: '' })}
+                                      className="w-full py-4 rounded-xl font-bold transition flex items-center justify-center bg-red-50 text-red-600 hover:bg-red-100 border border-red-100"
+                                  >
+                                      <XCircle className="w-5 h-5 mr-2"/> Reject Provider
+                                  </button>
+                                )}
+                                
+                                <button 
+                                    onClick={() => toggleFeatured(viewProvider.id, viewProvider.isFeatured)}
+                                    disabled={actionLoading || !viewProvider.isVerified}
+                                    className={`w-full py-4 rounded-xl font-bold transition flex items-center justify-center border disabled:opacity-50 ${viewProvider.isFeatured ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                                >
+                                    <Star className={`w-5 h-5 mr-2 ${viewProvider.isFeatured ? 'fill-purple-700' : ''}`}/> {viewProvider.isFeatured ? 'Unfeature from Top Search' : 'Feature Provider'}
+                                </button>
+                            </div>
+
+                            {/* Document Viewers (SYNCED WITH ALL CERTIFICATES) */}
+                            <div className="flex-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col min-h-[300px]">
+                                <h4 className="font-bold text-gray-900 mb-4 flex items-center"><FileText className="w-4 h-4 mr-2 text-gray-400"/> Uploaded Documents</h4>
+                                <div className="space-y-2 flex-1 flex flex-col">
+                                    {viewProvider.cv_url && (
+                                        <a href={viewProvider.cv_url} target="_blank" rel="noreferrer" className="flex items-center p-3 rounded-xl border border-gray-100 hover:border-emerald-300 hover:bg-emerald-50 transition group"><FileText className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 mr-3" /><span className="font-bold text-gray-900 text-sm">Full CV (PDF)</span></a>
+                                    )}
+                                    {viewProvider.license_url && (
+                                        <a href={viewProvider.license_url} target="_blank" rel="noreferrer" className="flex items-center p-3 rounded-xl border border-gray-100 hover:border-emerald-300 hover:bg-emerald-50 transition group"><ShieldCheck className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 mr-3" /><span className="font-bold text-gray-900 text-sm">Nursing License</span></a>
+                                    )}
+                                    {viewProvider.cert_bachelor_url && (
+                                        <a href={viewProvider.cert_bachelor_url} target="_blank" rel="noreferrer" className="flex items-center p-3 rounded-xl border border-gray-100 hover:border-emerald-300 hover:bg-emerald-50 transition group"><GraduationCap className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 mr-3" /><span className="font-bold text-gray-900 text-sm">Bachelor's Degree</span></a>
+                                    )}
+                                    {viewProvider.cert_plus2_url && (
+                                        <a href={viewProvider.cert_plus2_url} target="_blank" rel="noreferrer" className="flex items-center p-3 rounded-xl border border-gray-100 hover:border-emerald-300 hover:bg-emerald-50 transition group"><CheckCircle className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 mr-3" /><span className="font-bold text-gray-900 text-sm">+2 / Higher Sec.</span></a>
+                                    )}
+                                    {viewProvider.cert_slc_url && (
+                                        <a href={viewProvider.cert_slc_url} target="_blank" rel="noreferrer" className="flex items-center p-3 rounded-xl border border-gray-100 hover:border-emerald-300 hover:bg-emerald-50 transition group"><CheckCircle className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 mr-3" /><span className="font-bold text-gray-900 text-sm">SLC / Schooling</span></a>
+                                    )}
+                                    
+                                    {!viewProvider.cv_url && !viewProvider.license_url && !viewProvider.cert_bachelor_url && !viewProvider.cert_plus2_url && !viewProvider.cert_slc_url && (
+                                        <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                                            <FileText className="w-8 h-8 text-gray-300 mb-2"/>
+                                            <p className="text-sm font-medium text-gray-500">No documents uploaded.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              )}
             </div>
-          </div>
-        )}
+        </div>
+      )}
 
-        {/* --- TAB 3: PATIENTS LIST --- */}
-        {activeTab === 'patients' && (
-          <div className="p-8 overflow-y-auto h-full">
-             <h1 className="text-3xl font-extrabold text-gray-900 mb-8">Registered Patients</h1>
-             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100 text-sm uppercase text-gray-500 tracking-wider">
-                      <th className="p-4 font-bold">Patient Name</th>
-                      <th className="p-4 font-bold">Location</th>
-                      <th className="p-4 font-bold">Care Recipient</th>
-                      <th className="p-4 font-bold">Contact</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {patients.map(patient => (
-                      <tr key={patient.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                        <td className="p-4 font-bold text-gray-900">{patient.full_name || 'Unnamed User'}</td>
-                        <td className="p-4 text-gray-600">{patient.city_zone}, {patient.district}</td>
-                        <td className="p-4 text-gray-600">
-                           <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{patient.careRecipient || 'Unknown'}</span>
-                        </td>
-                        <td className="p-4 text-gray-600 text-sm">{patient.phone}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-             </div>
+      {/* --- REJECT REASON MODAL --- */}
+      {rejectModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4"><XCircle className="w-8 h-8 text-red-600"/></div>
+            <h3 className="text-2xl font-black text-center text-gray-900 font-serif mb-2">Reject Provider</h3>
+            <p className="text-gray-500 text-sm text-center mb-6">Explain why {rejectModal.provider.name || 'this provider'} is being rejected. They will see this message.</p>
+            
+            <form onSubmit={handleRejectSubmit} className="space-y-4">
+              <textarea required value={rejectModal.reason} onChange={(e) => setRejectModal({...rejectModal, reason: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 outline-none font-medium resize-none min-h-[120px] focus:ring-2 focus:ring-red-100 text-sm" placeholder="e.g. 'Your Nursing License PDF is blurry and unreadable. Please re-upload a clear copy.'"></textarea>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setRejectModal({ isOpen: false, provider: null, reason: '' })} className="flex-1 bg-gray-100 text-gray-700 font-bold py-4 rounded-xl hover:bg-gray-200 transition">Cancel</button>
+                <button type="submit" disabled={rejecting} className="flex-1 bg-red-600 text-white font-bold py-4 rounded-xl hover:bg-red-700 transition flex items-center justify-center shadow-lg">
+                  {rejecting ? <Loader2 className="w-5 h-5 animate-spin"/> : "Send Rejection"}
+                </button>
+              </div>
+            </form>
           </div>
-        )}
+        </div>
+      )}
+      {/* --- PATIENT DETAIL & CASES MODAL --- */}
+      {viewPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm animate-in fade-in" onClick={() => setViewPatient(null)}></div>
+            <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95">
+                
+                <div className="bg-[#fdfcf9] p-6 border-b border-gray-100 flex justify-between items-start shrink-0">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-black text-xl overflow-hidden shrink-0 border-2 border-white shadow-sm">
+                        {viewPatient.avatar_url && !viewProvider?.avatar_url?.includes('default') ? <img src={viewPatient.avatar_url} className="w-full h-full object-cover"/> : (viewPatient.full_name || "P").charAt(0)}
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-black text-gray-900 font-serif">{viewPatient.full_name || 'Unnamed Patient'}</h3>
+                        <p className="text-blue-700 font-bold text-sm">Registered Patient Account</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setViewPatient(null)} className="p-2 bg-gray-100 rounded-full text-gray-400 hover:text-gray-900 hover:bg-gray-200 transition"><X className="w-5 h-5"/></button>
+                </div>
 
-      </main>
+                <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30 custom-scrollbar">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        
+                        {/* Patient Profile Info */}
+                        <div className="md:col-span-1 space-y-6">
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                                <h4 className="font-bold text-gray-900 mb-4 flex items-center"><Users className="w-4 h-4 mr-2 text-blue-600"/> Patient Details</h4>
+                                <div className="space-y-3 text-sm">
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Care For</span> <span className="font-bold text-gray-900">{viewPatient.careRecipient || 'Self'}</span></p>
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Mobility</span> <span className="font-bold text-gray-900">{viewPatient.mobility || 'Not specified'}</span></p>
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Phone</span> <span className="font-bold text-gray-900">{viewPatient.phone || '-'}</span></p>
+                                    <p className="flex justify-between"><span className="text-gray-500 font-medium">Location</span> <span className="font-bold text-gray-900">{viewPatient.district || '-'}</span></p>
+                                </div>
+                            </div>
+                            {viewPatient.emergencyName && (
+                              <div className="bg-red-50 p-6 rounded-2xl border border-red-100 shadow-sm">
+                                  <h4 className="font-bold text-red-900 mb-2 flex items-center"><ShieldAlert className="w-4 h-4 mr-2"/> Emergency Contact</h4>
+                                  <p className="font-bold text-red-800">{viewPatient.emergencyName} ({viewPatient.emergencyRelation})</p>
+                                  <p className="text-red-700 font-medium">{viewPatient.emergencyPhone}</p>
+                              </div>
+                            )}
+                        </div>
+
+                        {/* Patient's Care Requests (Cases) */}
+                        <div className="md:col-span-2 space-y-4">
+                            <h4 className="font-black text-gray-900 text-lg mb-2">Care Requests Posted</h4>
+                            {jobs.filter(j => j.patientId === viewPatient.id).length === 0 ? (
+                               <p className="text-gray-500 italic p-6 bg-white rounded-2xl border border-gray-100">This patient hasn't posted any cases yet.</p>
+                            ) : (
+                               jobs.filter(j => j.patientId === viewPatient.id).map(job => (
+                                 <div key={job.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm transition hover:shadow-md">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${job.status === 'searching' ? 'bg-amber-50 text-amber-700' : (job.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700')}`}>
+                                          {job.status}
+                                        </span>
+                                        <span className="text-xs font-bold text-gray-400">{job.urgency}</span>
+                                    </div>
+                                    <h4 className="font-black text-gray-900 text-lg mb-1">{job.roleNeeded}</h4>
+                                    <p className="text-sm text-gray-600 mb-3">{job.careType} • {job.location}</p>
+                                    <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg mb-3">"{job.details}"</p>
+                                    
+                                    {/* SHOW ATTACHED MEDICAL FILE IN ADMIN MODAL */}
+                                    {job.medical_url && (
+                                      <a href={job.medical_url} target="_blank" rel="noreferrer" className="inline-flex items-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-100 transition">
+                                        <FileText className="w-4 h-4 mr-2"/> View Attached Medical File
+                                      </a>
+                                    )}
+                                 </div>
+                               ))
+                            )}
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 }
