@@ -38,6 +38,29 @@ export default function PatientSaaSDashboard() {
   const [submittingReview, setSubmittingReview] = useState(false);
 
   // ==========================================
+  // CUSTOM SORTING FUNCTION FOR CASES
+  // ==========================================
+  // Puts 'matched' (active) first, 'searching' second, and 'completed' last.
+  const sortCases = (casesArray) => {
+    const statusWeight = {
+      'matched': 1,
+      'searching': 2,
+      'completed': 3
+    };
+
+    return [...casesArray].sort((a, b) => {
+      // First sort by status weight
+      const weightDiff = (statusWeight[a.status] || 99) - (statusWeight[b.status] || 99);
+      if (weightDiff !== 0) return weightDiff;
+      
+      // If same status, sort by newest first (assuming createdAt exists)
+      const timeA = a.createdAt?.toMillis() || 0;
+      const timeB = b.createdAt?.toMillis() || 0;
+      return timeB - timeA;
+    });
+  };
+
+  // ==========================================
   // 1. SYSTEM INITIALIZATION & SECURITY
   // ==========================================
   useEffect(() => {
@@ -79,15 +102,29 @@ export default function PatientSaaSDashboard() {
         
         const unsubReqs = onSnapshot(reqQuery, (snapshot) => {
           const myOnlyReqs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          setMyRequests(myOnlyReqs); 
+          // Apply our new custom sorter immediately!
+          setMyRequests(sortCases(myOnlyReqs)); 
         });
 
-        // 2. Listen to REAL Nurses
+        // 2 & 3. Fetch Nurses & Strict District Filtering
         let realNurses = [];
         let fakeNurses = [];
+        
+        // The patient's district, formatted for safe comparison
+        const patientDistrict = (data.district || '').toLowerCase();
 
         const updateProviderList = () => {
-          setAvailableProviders([...realNurses, ...fakeNurses]);
+          // Combine both arrays
+          const allProviders = [...realNurses, ...fakeNurses];
+          
+          // 🚨 STRICT DISTRICT FILTERING 🚨
+          const localProviders = allProviders.filter(provider => {
+             const providerDistrict = (provider.district || '').toLowerCase();
+             // Only return true if both exist and match exactly
+             return patientDistrict !== '' && providerDistrict !== '' && patientDistrict === providerDistrict;
+          });
+
+          setAvailableProviders(localProviders);
           setPageLoading(false);
         };
 
@@ -97,7 +134,6 @@ export default function PatientSaaSDashboard() {
           updateProviderList();
         });
 
-        // 3. Listen to MEGA-SEEDER Nurses
         const unsubProviders = onSnapshot(query(collection(db, "providers")), (snapshot) => {
           fakeNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           updateProviderList();
@@ -130,19 +166,15 @@ export default function PatientSaaSDashboard() {
     try {
       const job = reviewModal.job;
 
-      // 1. Update the Job so the patient can't review it twice
       await updateDoc(doc(db, "care_requests", job.id), { 
         isReviewed: true,
         ratingGiven: reviewModal.rating,
         reviewText: reviewModal.reviewText
       });
 
-      // 2. Update the Nurse's Global Profile
-      // First, check if they are a real user in the 'users' collection
       let nurseRef = doc(db, "users", job.nurseId);
       let nurseSnap = await getDoc(nurseRef);
       
-      // If not found, they must be a fake seeded nurse in 'providers'
       if (!nurseSnap.exists()) {
         nurseRef = doc(db, "providers", job.nurseId);
         nurseSnap = await getDoc(nurseRef);
@@ -155,7 +187,7 @@ export default function PatientSaaSDashboard() {
         const newRating = (currentTotal + reviewModal.rating) / newCount;
 
         await updateDoc(nurseRef, {
-          rating: parseFloat(newRating.toFixed(1)), // Keep it to 1 decimal place (e.g., 4.8)
+          rating: parseFloat(newRating.toFixed(1)),
           reviewCount: newCount
         });
       }
@@ -213,7 +245,6 @@ export default function PatientSaaSDashboard() {
   const displayPhoto = userData.photoURL || userData.avatar_url || null;
   const displayLocation = userData.location || userData.district || 'Location not set';
 
-  // Real Dynamic Stats
   const activeCount = myRequests.filter(r => r.status === 'searching').length;
   const matchedCount = myRequests.filter(r => r.status === 'matched').length;
   const completedCount = myRequests.filter(r => r.status === 'completed').length;
@@ -279,7 +310,7 @@ export default function PatientSaaSDashboard() {
                   </div>
                   <div className="flex items-center justify-between sm:justify-end sm:gap-8 border-t sm:border-0 border-gray-50 pt-4 sm:pt-0">
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === 'searching' ? 'bg-amber-50 text-amber-700' : (req.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700')}`}>
-                      {req.status === 'searching' ? 'Finding Matches' : req.status}
+                      {req.status === 'searching' ? 'Finding Matches' : req.status === 'matched' ? 'Active Care' : req.status}
                     </span>
                     <button onClick={() => setActiveTab('my-cases')} className="w-8 h-8 rounded-full bg-gray-50 group-hover:bg-emerald-50 flex items-center justify-center transition shrink-0">
                       <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600" />
@@ -297,102 +328,106 @@ export default function PatientSaaSDashboard() {
   // ==========================================
   // RENDER: FIND PROVIDERS TAB
   // ==========================================
-  const renderFindProviders = () => (
-    <div className="animate-in fade-in duration-300 max-w-5xl">
-      <div className="mb-8">
-        <h2 className="text-4xl font-serif text-gray-900 leading-tight">
-          Find <span className="text-emerald-600 italic">trusted</span><br/>care near you
-        </h2>
-      </div>
+  const renderFindProviders = () => {
+    // Only feature nurses if they are actually available in this district
+    const localFeaturedNurses = availableProviders.filter(nurse => nurse.isFeatured || nurse.rating >= 4.8);
 
-      <div className="flex relative mb-8 shadow-sm">
-        <Search className="absolute left-4 top-4 w-5 h-5 text-gray-400" />
-        <input type="text" placeholder="Search by role, location..." className="w-full py-4 pl-12 pr-4 bg-white border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 font-medium" />
-      </div>
-
-      {/* DYNAMIC FEATURED NURSES */}
-      <div className="mb-10">
-        <h3 className="font-bold text-gray-900 mb-4 flex items-center">
-          <Star className="w-5 h-5 mr-2 text-amber-500 fill-amber-500" /> Featured by Admin
-        </h3>
-        <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-          {availableProviders
-            .filter(nurse => nurse.isFeatured || nurse.rating >= 4.8)
-            .map(featuredNurse => (
-            <div key={featuredNurse.id} className="min-w-[300px] bg-white rounded-3xl border border-gray-100 p-6 shadow-sm hover:border-emerald-200 transition cursor-pointer" onClick={() => router.push(`/nurses/${featuredNurse.id}`)}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="w-12 h-12 rounded-full bg-[#0a271f] text-white overflow-hidden flex items-center justify-center font-black text-lg">
-                  {featuredNurse.avatar_url || featuredNurse.photoURL ? <img src={featuredNurse.avatar_url || featuredNurse.photoURL} alt="Nurse" className="w-full h-full object-cover"/> : (featuredNurse.name || featuredNurse.full_name || "N").charAt(0)}
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-black text-gray-900">Rs. {featuredNurse.hourlyRate || 1500}<span className="text-xs text-gray-500">/hr</span></p>
-                </div>
-              </div>
-              <h4 className="text-lg font-black text-gray-900">{featuredNurse.name || featuredNurse.full_name}</h4>
-              <p className="text-xs text-gray-500 font-medium mb-3">{featuredNurse.specialty || featuredNurse.role}</p>
-              
-              {/* NEW: DISPLAY THE STAR RATING */}
-              <div className="flex items-center gap-1.5 mb-3">
-                <Star className={`w-4 h-4 ${featuredNurse.rating ? 'fill-amber-400 text-amber-400' : 'fill-gray-200 text-gray-200'}`} />
-                <span className="font-bold text-gray-900 text-sm">{featuredNurse.rating ? featuredNurse.rating : 'New'}</span>
-                <span className="text-gray-400 text-xs font-medium">({featuredNurse.reviewCount || 0} reviews)</span>
-              </div>
-
-              <div className="flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 w-fit px-2 py-1 rounded-md">
-                <ShieldCheck className="w-4 h-4 mr-1" /> Verified Professional
-              </div>
-            </div>
-          ))}
+    return (
+      <div className="animate-in fade-in duration-300 max-w-5xl">
+        <div className="mb-8">
+          <h2 className="text-4xl font-serif text-gray-900 leading-tight">
+            Find <span className="text-emerald-600 italic">trusted</span><br/>care near you
+          </h2>
+          <p className="text-sm text-gray-500 font-bold flex items-center mt-3 bg-gray-50 w-fit px-3 py-1.5 rounded-lg border border-gray-100">
+            <MapPin className="w-4 h-4 mr-2 text-emerald-600"/> Showing providers in <span className="text-emerald-700 mx-1">{userData.district || 'your local area'}</span>
+          </p>
         </div>
-      </div>
 
-      {/* ALL OTHER PROVIDERS */}
-      {availableProviders.length === 0 ? (
-        <div className="py-20 text-center text-gray-500 font-bold">No providers found in your area yet.</div>
-      ) : (
-        <div className="space-y-6">
-          {availableProviders.map((nurse) => (
-            <div key={nurse.id} className="bg-white rounded-3xl border border-gray-100 p-6 sm:p-8 shadow-sm transition hover:shadow-md">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 overflow-hidden flex items-center justify-center text-emerald-700 font-black text-xl border-4 border-white shadow-sm shrink-0">
-                    {nurse.avatar_url || nurse.photoURL ? <img src={nurse.avatar_url || nurse.photoURL} alt="Nurse" className="w-full h-full object-cover"/> : (nurse.name || nurse.full_name || "N").charAt(0)}
-                  </div>
-                  <div>
-                    <h4 className="text-xl font-black text-gray-900 leading-tight mb-1 flex items-center">
-                      {nurse.name || nurse.full_name}
-                      {nurse.isVerified && <ShieldCheck className="w-5 h-5 text-emerald-500 ml-2" title="Verified"/>}
-                    </h4>
-                    <p className="text-emerald-700 font-bold text-xs uppercase tracking-wider mb-2">{nurse.specialty || nurse.role} · {nurse.experience || '3'} yrs exp.</p>
-
-                    {/* NEW: DISPLAY THE STAR RATING */}
-                    <div className="flex items-center gap-1.5 mb-3">
-                      <Star className={`w-4 h-4 ${nurse.rating ? 'fill-amber-400 text-amber-400' : 'fill-gray-200 text-gray-200'}`} />
-                      <span className="font-bold text-gray-900 text-sm">{nurse.rating ? nurse.rating : 'New'}</span>
-                      <span className="text-gray-400 text-xs font-medium">({nurse.reviewCount || 0} reviews)</span>
+        {/* DYNAMIC FEATURED NURSES */}
+        {localFeaturedNurses.length > 0 && (
+          <div className="mb-10">
+            <h3 className="font-bold text-gray-900 mb-4 flex items-center">
+              <Star className="w-5 h-5 mr-2 text-amber-500 fill-amber-500" /> Featured Local Providers
+            </h3>
+            <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+              {localFeaturedNurses.map(featuredNurse => (
+                <div key={featuredNurse.id} className="min-w-[300px] bg-white rounded-3xl border border-gray-100 p-6 shadow-sm hover:border-emerald-200 transition cursor-pointer" onClick={() => router.push(`/nurses/${featuredNurse.id}`)}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="w-12 h-12 rounded-full bg-[#0a271f] text-white overflow-hidden flex items-center justify-center font-black text-lg">
+                      {featuredNurse.avatar_url || featuredNurse.photoURL ? <img src={featuredNurse.avatar_url || featuredNurse.photoURL} alt="Nurse" className="w-full h-full object-cover"/> : (featuredNurse.name || featuredNurse.full_name || "N").charAt(0)}
                     </div>
+                    <div className="text-right">
+                      <p className="text-lg font-black text-gray-900">Rs. {featuredNurse.hourlyRate || 1500}<span className="text-xs text-gray-500">/hr</span></p>
+                    </div>
+                  </div>
+                  <h4 className="text-lg font-black text-gray-900">{featuredNurse.name || featuredNurse.full_name}</h4>
+                  <p className="text-xs text-gray-500 font-medium mb-3">{featuredNurse.specialty || featuredNurse.role}</p>
+                  
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <Star className={`w-4 h-4 ${featuredNurse.rating ? 'fill-amber-400 text-amber-400' : 'fill-gray-200 text-gray-200'}`} />
+                    <span className="font-bold text-gray-900 text-sm">{featuredNurse.rating ? featuredNurse.rating : 'New'}</span>
+                    <span className="text-gray-400 text-xs font-medium">({featuredNurse.reviewCount || 0} reviews)</span>
+                  </div>
 
+                  <div className="flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 w-fit px-2 py-1 rounded-md">
+                    <ShieldCheck className="w-4 h-4 mr-1" /> Verified Professional
                   </div>
                 </div>
-                <div className="text-left sm:text-right">
-                  <p className="text-2xl font-black text-gray-900">Rs. {nurse.hourlyRate || 1500}<span className="text-sm text-gray-500 font-medium">/hr</span></p>
-                  <p className="text-xs text-gray-400 font-bold flex items-center sm:justify-end mt-1"><MapPin className="w-3 h-3 mr-1"/> {nurse.location || nurse.district}</p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ALL OTHER PROVIDERS */}
+        {availableProviders.length === 0 ? (
+          <div className="py-20 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100 shadow-sm">
+             <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+             No providers found in {userData.district || 'your area'} yet.
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {availableProviders.map((nurse) => (
+              <div key={nurse.id} className="bg-white rounded-3xl border border-gray-100 p-6 sm:p-8 shadow-sm transition hover:shadow-md">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 overflow-hidden flex items-center justify-center text-emerald-700 font-black text-xl border-4 border-white shadow-sm shrink-0">
+                      {nurse.avatar_url || nurse.photoURL ? <img src={nurse.avatar_url || nurse.photoURL} alt="Nurse" className="w-full h-full object-cover"/> : (nurse.name || nurse.full_name || "N").charAt(0)}
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-black text-gray-900 leading-tight mb-1 flex items-center">
+                        {nurse.name || nurse.full_name}
+                        {nurse.isVerified && <ShieldCheck className="w-5 h-5 text-emerald-500 ml-2" title="Verified"/>}
+                      </h4>
+                      <p className="text-emerald-700 font-bold text-xs uppercase tracking-wider mb-2">{nurse.specialty || nurse.role} · {nurse.experience || '3'} yrs exp.</p>
+
+                      <div className="flex items-center gap-1.5 mb-3">
+                        <Star className={`w-4 h-4 ${nurse.rating ? 'fill-amber-400 text-amber-400' : 'fill-gray-200 text-gray-200'}`} />
+                        <span className="font-bold text-gray-900 text-sm">{nurse.rating ? nurse.rating : 'New'}</span>
+                        <span className="text-gray-400 text-xs font-medium">({nurse.reviewCount || 0} reviews)</span>
+                      </div>
+
+                    </div>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <p className="text-2xl font-black text-gray-900">Rs. {nurse.hourlyRate || 1500}<span className="text-sm text-gray-500 font-medium">/hr</span></p>
+                    <p className="text-xs text-gray-400 font-bold flex items-center sm:justify-end mt-1"><MapPin className="w-3 h-3 mr-1"/> {nurse.location || nurse.district}</p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-gray-50">
+                  <button 
+                    onClick={() => router.push(`/nurses/${nurse.id}`)} 
+                    className="w-full sm:w-auto px-8 py-3 bg-[#0a271f] text-white font-bold rounded-xl hover:bg-black transition shadow-md"
+                  >
+                    View Full Profile
+                  </button>
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-gray-50">
-                <button 
-                  onClick={() => router.push(`/nurses/${nurse.id}`)} 
-                  className="w-full sm:w-auto px-8 py-3 bg-[#0a271f] text-white font-bold rounded-xl hover:bg-black transition shadow-md"
-                >
-                  View Full Profile
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ==========================================
   // RENDER: MY CASES TAB
@@ -414,7 +449,7 @@ export default function PatientSaaSDashboard() {
           <div key={job.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-6 hover:shadow-md transition">
             <div>
               <span className={`inline-block px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-md mb-3 ${job.status === 'searching' ? 'bg-amber-100 text-amber-800' : (job.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-100 text-emerald-800')}`}>
-                {job.status === 'searching' ? 'Finding Matches' : job.status}
+                {job.status === 'searching' ? 'Finding Matches' : job.status === 'matched' ? 'Active Care' : job.status}
               </span>
               <h3 className="text-xl font-black text-gray-900">{job.roleNeeded}</h3>
               <p className="text-gray-500 text-sm mt-1 flex items-center"><MapPin className="w-4 h-4 mr-1"/> {job.location} • {job.careType}</p>

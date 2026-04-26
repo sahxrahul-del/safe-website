@@ -34,6 +34,11 @@ export default function Signup() {
   const handleGoogleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
+
+      // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
+      document.cookie = `userRole=${role}; path=/; max-age=${60 * 60 * 24 * 7};`;
+      document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+
       router.push(`/profile?setup=true&role=${role}`);
     } catch (error) {
       setErrorMessage(error.message);
@@ -53,9 +58,18 @@ export default function Signup() {
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
-await sendEmailVerification(userCredential.user);
-// Force redirect to profile to complete setup
-router.push(`/profile?setup=true&role=${role}`);
+     
+      // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
+      // We use the 'role' variable you defined at the top of your file from the URL params!
+      document.cookie = `userRole=${role}; path=/; max-age=${60 * 60 * 24 * 7};`;
+      document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+      
+      // 1. Send the Verification Email
+      await sendEmailVerification(userCredential.user);
+      
+      // 2. Show the "Check your Email" screen instead of redirecting instantly
+      setShowVerification(true);
+
     } catch (error) {
        setErrorMessage(error.message);
     } finally {
@@ -88,8 +102,10 @@ router.push(`/profile?setup=true&role=${role}`);
               We've sent a secure verification link to <br/><span className="font-bold text-gray-900">{formData.email}</span>
             </p>
             <p className="text-sm text-gray-400 mb-8">Please click the link in your email to activate your account.</p>
-            <Link href="/login" className="w-full block bg-[#0a271f] text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-900 transition shadow-lg">
-                I have verified my email -
+            
+            {/* Added the dynamic role to the login push so they stay on the right track */}
+            <Link href={`/login?role=${role}`} className="w-full block bg-[#0a271f] text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-900 transition shadow-lg">
+                I have verified my email →
             </Link>
           </div>
         ) : (

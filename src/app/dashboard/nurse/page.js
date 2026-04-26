@@ -8,10 +8,11 @@ import {
   doc, getDoc, collection, query, onSnapshot, updateDoc, addDoc, serverTimestamp 
 } from 'firebase/firestore';
 import { 
-  LayoutDashboard, UserCircle, Briefcase, Settings, Bell, 
+  LayoutDashboard, UserCircle, Briefcase, Bell, 
   MapPin, Loader2, CheckCircle, Clock, FileText, ChevronRight, 
-  Activity, HeartPulse, Edit3, Eye, Inbox, Smartphone, Bookmark, AlertCircle,
-  MessageSquare, Calendar, ToggleLeft, ToggleRight, XCircle, ShieldCheck, Star
+  Activity, Edit3, Inbox, AlertCircle,
+  MessageSquare, Calendar, ToggleLeft, ToggleRight, XCircle, ShieldCheck, Star,
+  ExternalLink
 } from 'lucide-react';
 
 export default function NurseSaaSDashboard() {
@@ -21,13 +22,16 @@ export default function NurseSaaSDashboard() {
   const [userAuth, setUserAuth] = useState(null);
   const [userData, setUserData] = useState(null);
   const [showVerifiedBanner, setShowVerifiedBanner] = useState(true);
+  
   // Chat State
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
+  
   // Custom Modal States
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, jobId: null });
   const [isCompleting, setIsCompleting] = useState(false);
+  
   // Check memory when the page loads
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -38,7 +42,6 @@ export default function NurseSaaSDashboard() {
     }
   }, []);
 
-  // Save to memory when they click 'X'
   const handleDismissBanner = () => {
     setShowVerifiedBanner(false);
     if (typeof window !== 'undefined') {
@@ -52,11 +55,10 @@ export default function NurseSaaSDashboard() {
   // Job Feeds
   const [availableJobs, setAvailableJobs] = useState([]);
   const [myJobs, setMyJobs] = useState([]);
-  const [directInvites, setDirectInvites] = useState([]); // <-- NEW: The Direct Inbox
+  const [directInvites, setDirectInvites] = useState([]); 
   
   // UI & Action States
   const [pageLoading, setPageLoading] = useState(true);
-  const [acceptingId, setAcceptingId] = useState(null);
   const [decliningId, setDecliningId] = useState(null);
 
   // Quick Edit State
@@ -64,9 +66,15 @@ export default function NurseSaaSDashboard() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editMessage, setEditMessage] = useState(null);
 
-  // Availability State
+  /// Availability State (Correctly spelled)
   const [schedule, setSchedule] = useState({
-    Mon: true, Tue: true, Wed: true, Thu: true, Fri: true, Sat: false, Sun: false
+    Monday: true, 
+    Tuesday: true, 
+    Wednesday: true, 
+    Thursday: true, 
+    Friday: true, 
+    Saturday: false, 
+    Sunday: false
   });
 
   // ==========================================
@@ -88,7 +96,6 @@ export default function NurseSaaSDashboard() {
         
         const safeRole = data.role?.toLowerCase() || '';
         
-        // NEW: Send Admins to the control room
         if (safeRole === 'admin') {
           router.push('/admin');
           return;
@@ -116,19 +123,19 @@ export default function NurseSaaSDashboard() {
         const unsubscribeJobs = onSnapshot(q, (snapshot) => {
           const allRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-          // 1. GLOBAL JOBS: Searching & Matches my location
-          const available = allRequests.filter(req => 
-            req.status === 'searching' && 
-            (req.location === data.location || req.location === data.district) 
-          );
+          // STRICT DISTRICT MATCHING
+          const available = allRequests.filter(req => {
+            if (req.status !== 'searching') return false;
+            const jobDistrict = (req.district || '').toLowerCase();
+            const nurseDistrict = (data.district || '').toLowerCase();
+            return nurseDistrict !== '' && jobDistrict !== '' && jobDistrict === nurseDistrict;
+          });
           
-          // 2. MY JOBS: I have already accepted these
           const accepted = allRequests.filter(req => 
             (req.status === 'matched' || req.status === 'completed') && 
             req.nurseId === currentUser.uid
           );
 
-          // 3. DIRECT INVITES: Patients specifically chose me!
           const invites = allRequests.filter(req => 
             req.status === 'direct_request' && 
             req.targetNurseId === currentUser.uid
@@ -136,7 +143,7 @@ export default function NurseSaaSDashboard() {
 
           setAvailableJobs(available);
           setMyJobs(accepted);
-          setDirectInvites(invites); // Save to state
+          setDirectInvites(invites); 
           
           setPageLoading(false);
         });
@@ -155,11 +162,9 @@ export default function NurseSaaSDashboard() {
   useEffect(() => {
     if (!activeChatId) return;
     
-    // Listen to the specific 'messages' sub-collection inside this exact job
     const q = query(collection(db, `care_requests/${activeChatId}/messages`));
     const unsubChat = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Sort messages by time locally to avoid Firebase index errors
       msgs.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0));
       setChatMessages(msgs);
     });
@@ -175,10 +180,10 @@ export default function NurseSaaSDashboard() {
       await addDoc(collection(db, `care_requests/${activeChatId}/messages`), {
         text: newMessage,
         senderId: userAuth.uid,
-        senderName: displayName,
+        senderName: userData.name || userData.full_name || "Care Provider",
         createdAt: serverTimestamp()
       });
-      setNewMessage(""); // Clear input after sending
+      setNewMessage(""); 
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -187,31 +192,13 @@ export default function NurseSaaSDashboard() {
   // ==========================================
   // 2. LIVE DATABASE ACTIONS
   // ==========================================
-  const handleAcceptJob = async (jobId) => {
-    setAcceptingId(jobId);
-    try {
-      const jobRef = doc(db, "care_requests", jobId);
-      await updateDoc(jobRef, {
-        status: 'matched',
-        nurseId: userAuth.uid,
-        nurseName: userData.name || userData.full_name || "Care Provider",
-        nursePhoto: userData.photoURL || userData.avatar_url || ''
-      });
-      setActiveTab('my-cases'); 
-    } catch (error) {
-      console.error("Error accepting job:", error);
-      alert("Failed to accept job.");
-    } finally {
-      setAcceptingId(null);
-    }
-  };
   
-  // 1. TRIGGER THE CUSTOM MODAL
+  // NOTE: handleAcceptJob was removed entirely! Acceptance happens strictly in the Case Room now.
+  
   const handleCompleteJobClick = (jobId) => {
     setConfirmModal({ isOpen: true, jobId });
   };
 
-  // 2. EXECUTE THE DATABASE UPDATE
   const executeCompleteJob = async () => {
     if (!confirmModal.jobId) return;
     setIsCompleting(true);
@@ -220,7 +207,6 @@ export default function NurseSaaSDashboard() {
       await updateDoc(doc(db, "care_requests", confirmModal.jobId), {
         status: 'completed'
       });
-      // Close the modal upon success
       setConfirmModal({ isOpen: false, jobId: null });
     } catch (error) {
       console.error("Error completing shift:", error);
@@ -229,12 +215,11 @@ export default function NurseSaaSDashboard() {
     }
   };
 
-  // NEW: Decline a direct invite
+  // We keep decline here so nurses can clear their inbox without opening the room
   const handleDeclineInvite = async (jobId) => {
     setDecliningId(jobId);
     try {
       const jobRef = doc(db, "care_requests", jobId);
-      // Pushes it to the global job board so the patient can still get help!
       await updateDoc(jobRef, {
         status: 'searching',
         targetNurseId: null 
@@ -325,7 +310,6 @@ export default function NurseSaaSDashboard() {
                 <h3 className="text-xl font-black text-gray-900 mt-2">{job.roleNeeded}</h3>
                 <p className="text-gray-500 text-sm mt-1 flex items-center"><MapPin className="w-4 h-4 mr-1"/> {job.location} • {job.careType}</p>
                 
-                {/* Patient Details */}
                 <div className="mt-4 flex items-center bg-gray-50 p-3 rounded-lg w-fit">
                   <div className="w-8 h-8 rounded-full bg-blue-100 overflow-hidden flex items-center justify-center mr-3">
                     {job.patientPhoto ? <img src={job.patientPhoto} className="w-full h-full object-cover"/> : <span className="text-blue-800 font-bold text-xs">{(job.patientName || "P").charAt(0)}</span>}
@@ -336,23 +320,15 @@ export default function NurseSaaSDashboard() {
                   </div>
                 </div>
       
-                <p className="text-gray-600 text-sm mt-3 border-l-2 border-emerald-200 pl-3 italic">"{job.details}"</p>
-                
-                {/* MEDICAL FILE BUTTON */}
-                {job.medical_url && (
-                  <a href={job.medical_url} target="_blank" rel="noreferrer" className="inline-flex items-center mt-3 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md text-xs font-bold hover:bg-blue-100 transition w-fit border border-blue-100">
-                    <FileText className="w-3 h-3 mr-1.5"/> View Medical File
-                  </a>
-                )}
+                <p className="text-gray-600 text-sm mt-3 border-l-2 border-emerald-200 pl-3 italic truncate max-w-md">"{job.details}"</p>
               </div>
 
-              {/* UPDATED BUTTON CONTAINER */}
               <div className="shrink-0 flex flex-col sm:flex-row gap-3 mt-6 sm:mt-0">
                <button 
                   onClick={() => router.push(`/cases/${job.id}`)} 
                   className="px-6 py-3 bg-[#0a271f] text-white rounded-xl font-black text-sm hover:bg-black transition flex justify-center items-center shadow-md w-full sm:w-auto"
                 >
-                  Review Case Details
+                  Review Case Details ➔
                 </button> 
                 
                 <button 
@@ -360,10 +336,9 @@ export default function NurseSaaSDashboard() {
                   disabled={decliningId === job.id}
                   className="px-6 py-3 bg-white border border-gray-200 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition flex justify-center items-center w-full sm:w-auto"
                 >
-                  {decliningId === job.id ? <Loader2 className="w-4 h-4 animate-spin"/> : "Decline Request"}
+                  {decliningId === job.id ? <Loader2 className="w-4 h-4 animate-spin"/> : "Decline Quickly"}
                 </button>
               </div>
-
             </div>
           ))}
         </div>
@@ -376,7 +351,6 @@ export default function NurseSaaSDashboard() {
   // ==========================================
   const renderDashboard = () => {
     
-    // FIX: Accurately count completed jobs directly from the database feed!
     const availableJobsCount = typeof availableJobs !== 'undefined' ? availableJobs.length : 0;
     const activeJobsCount = typeof myJobs !== 'undefined' ? myJobs.filter(job => job.status === 'matched').length : 0;
     const completedJobsCount = typeof myJobs !== 'undefined' ? myJobs.filter(job => job.status === 'completed').length : 0;
@@ -384,7 +358,6 @@ export default function NurseSaaSDashboard() {
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
         
-        {/* THE REJECTION ALERT BANNER */}
         {userData.accountStatus === 'rejected' && (
           <div className="bg-red-50 border-2 border-red-200 p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-5 shadow-sm">
             <div className="bg-red-100 p-3 rounded-full shrink-0"><AlertCircle className="w-8 h-8 text-red-600"/></div>
@@ -401,10 +374,8 @@ export default function NurseSaaSDashboard() {
           </div>
         )}
 
-        {/* SUCCESS BANNER: Account Approved (Now Dismissible!) */}
         {(userData.accountStatus === 'approved' && userData.isVerified && showVerifiedBanner) && (
           <div className="bg-emerald-50 border-2 border-emerald-200 p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 shadow-sm relative pr-12">
-            
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
               <div className="bg-emerald-100 p-3 rounded-full shrink-0"><ShieldCheck className="w-8 h-8 text-emerald-600"/></div>
               <div className="flex-1">
@@ -414,19 +385,12 @@ export default function NurseSaaSDashboard() {
                   </p>
               </div>
             </div>
-            
-            {/* THE CLOSE BUTTON */}
-            <button 
-              onClick={handleDismissBanner} 
-              className="absolute top-4 right-4 p-2 text-emerald-600 bg-emerald-100 hover:bg-emerald-200 rounded-full transition"
-              title="Dismiss Banner"
-            >
+            <button onClick={handleDismissBanner} className="absolute top-4 right-4 p-2 text-emerald-600 bg-emerald-100 hover:bg-emerald-200 rounded-full transition" title="Dismiss Banner">
               <XCircle className="w-5 h-5" />
             </button>
           </div>
         )}
 
-        {/* PENDING BANNER: Waiting for Admin */}
         {(!userData.isVerified && userData.accountStatus !== 'rejected') && (
           <div className="bg-blue-50 border-2 border-blue-200 p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-5 shadow-sm">
             <div className="bg-blue-100 p-3 rounded-full shrink-0"><Clock className="w-8 h-8 text-blue-600"/></div>
@@ -439,7 +403,6 @@ export default function NurseSaaSDashboard() {
           </div>
         )}
         
-        {/* DIRECT INVITE ALERT BANNER */}
         {directInvites.length > 0 && (
           <div className="bg-emerald-600 text-white p-5 rounded-2xl shadow-lg flex items-center justify-between cursor-pointer hover:bg-emerald-700 transition" onClick={() => setActiveTab('invites')}>
             <div className="flex items-center">
@@ -464,7 +427,6 @@ export default function NurseSaaSDashboard() {
             </div>
         )}
 
-        {/* KPI STATS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
             <div className="flex justify-between items-start mb-4">
@@ -475,13 +437,13 @@ export default function NurseSaaSDashboard() {
             <p className="text-xs font-bold text-emerald-600">Live active requests</p>
           </div>
           
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm cursor-pointer hover:border-emerald-300 transition" onClick={() => setActiveTab('my-cases')}>
             <div className="flex justify-between items-start mb-4">
               <p className="text-sm font-bold text-gray-500">Active Cases</p>
-              <Activity className="w-5 h-5 text-gray-400" />
+              <Activity className="w-5 h-5 text-emerald-500" />
             </div>
             <h3 className="text-3xl font-black text-gray-900 mb-1">{activeJobsCount}</h3>
-            <p className="text-xs font-bold text-blue-600">Currently working</p>
+            <p className="text-xs font-bold text-blue-600">Currently working ➔</p>
           </div>
           
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
@@ -493,7 +455,6 @@ export default function NurseSaaSDashboard() {
             <p className="text-xs font-bold text-emerald-600">Total finished jobs</p>
           </div>
 
-          {/* NEW REVIEWS STAT CARD */}
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
             <div className="flex justify-between items-start mb-4">
               <p className="text-sm font-bold text-gray-500">Patient Rating</p>
@@ -562,16 +523,12 @@ export default function NurseSaaSDashboard() {
                             </div>
                             <h4 className="font-black text-gray-900 leading-tight mb-1">{job.roleNeeded}</h4>
                             <p className="text-xs text-gray-500 font-medium truncate">{job.location} • {job.details}</p>
-                          
-                          {/* NEW: MEDICAL FILE BUTTON FOR NURSES */}
-                            {job.medical_url && (
-                              <a href={job.medical_url} target="_blank" rel="noreferrer" className="inline-flex items-center mt-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-bold hover:bg-blue-100 transition w-fit">
-                                <FileText className="w-3 h-3 mr-1.5"/> Attached Medical Doc
-                              </a>
-                            )}
                           </div>
-                          <button onClick={() => handleAcceptJob(job.id)} disabled={acceptingId === job.id} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black rounded-xl transition flex items-center justify-center">
-                            {acceptingId === job.id ? <Loader2 className="w-4 h-4 animate-spin" /> : "Accept Job"}
+                          <button 
+                            onClick={() => router.push(`/cases/${job.id}`)} 
+                            className="px-6 py-3 bg-[#0a271f] hover:bg-black text-white text-sm font-black rounded-xl transition flex items-center justify-center shadow-md whitespace-nowrap"
+                          >
+                            Review Details ➔
                           </button>
                         </div>
                       ))}
@@ -591,7 +548,6 @@ export default function NurseSaaSDashboard() {
                     {userData.hourlyRate ? <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> Rate Configured</p> : <p className="flex items-center text-amber-600"><AlertCircle className="w-4 h-4 mr-2"/> Set Hourly Rate</p>}
                     {displayPhoto && !displayPhoto.includes('default') ? <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> Photo Uploaded</p> : <p className="flex items-center text-amber-600"><AlertCircle className="w-4 h-4 mr-2"/> Add Profile Photo</p>}
                     
-                    {/* NEW: Dynamic CV & License Checks */}
                     {userData.cv_url ? (
                       <p className="flex items-center text-gray-500"><CheckCircle className="w-4 h-4 mr-2 text-emerald-500"/> CV Uploaded</p>
                     ) : (
@@ -610,14 +566,7 @@ export default function NurseSaaSDashboard() {
     );
   };
 
-  // ==========================================
-  // RENDER: MY CASES & AVAILABILITY TABS
-  // ==========================================
-  // ==========================================
-  // RENDER: REVIEWS TAB
-  // ==========================================
   const renderReviews = () => {
-    // Filter the jobs to only show ones where the patient left a review
     const myReviews = myJobs.filter(job => job.isReviewed);
 
     return (
@@ -627,7 +576,6 @@ export default function NurseSaaSDashboard() {
           <p className="text-sm text-gray-500 font-medium">See what families are saying about your care.</p>
         </div>
 
-        {/* Global Stats Summary */}
         <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-6 mb-8 w-fit pr-12">
           <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center border border-amber-100 shrink-0">
             <Star className="w-8 h-8 text-amber-500 fill-amber-500" />
@@ -641,7 +589,6 @@ export default function NurseSaaSDashboard() {
           </div>
         </div>
 
-        {/* List of Individual Reviews */}
         {myReviews.length === 0 ? (
           <div className="py-12 text-center bg-white rounded-3xl border border-gray-100">
             <Star className="w-12 h-12 text-gray-200 mx-auto mb-3" />
@@ -685,95 +632,145 @@ export default function NurseSaaSDashboard() {
   // ==========================================
   // RENDER: MY CASES TAB
   // ==========================================
-  const renderMyCases = () => (
-    <div className="animate-in fade-in duration-300 max-w-4xl">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900 font-serif">My Active Cases</h2>
-          <p className="text-sm text-gray-500 font-medium">Manage your current patients and shifts.</p>
-        </div>
-      </div>
+  const renderMyCases = () => {
+    const activeCases = myJobs.filter(job => job.status === 'matched');
+    const pastCases = myJobs.filter(job => job.status === 'completed');
 
-      <div className="space-y-4">
-        {myJobs.map(job => (
-          <div key={job.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-6 hover:shadow-md transition">
-            <div>
-              <span className={`inline-block px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-md mb-3 ${job.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-100 text-emerald-800'}`}>
-                {job.status === 'completed' ? 'Shift Completed' : 'Active Shift'}
-              </span>
-              <h3 className="text-xl font-black text-gray-900">{job.roleNeeded}</h3>
-              <p className="text-gray-500 text-sm mt-1 flex items-center"><MapPin className="w-4 h-4 mr-1"/> {job.location} • {job.careType}</p>
-              
-              <p className="text-gray-600 text-sm mt-3 border-l-2 border-emerald-200 pl-3 italic">"{job.details}"</p>
-
-              {/* MEDICAL FILE BUTTON */}
-              {job.medical_url && (
-                <a href={job.medical_url} target="_blank" rel="noreferrer" className="inline-flex items-center mt-3 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md text-xs font-bold hover:bg-blue-100 transition w-fit border border-blue-100">
-                  <FileText className="w-3 h-3 mr-1.5"/> View Medical File
-                </a>
-              )}
-            </div>
-            
-            {/* BUTTON CONTAINER */}
-            <div className="shrink-0 flex flex-col sm:flex-row gap-3 mt-4 sm:mt-0">
-              
-              {/* 1. THE MESSAGE BUTTON */}
-              {job.status === 'matched' && (
-                <button 
-                  onClick={() => setActiveTab('messages')} 
-                  className="px-6 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-50 transition shadow-sm flex items-center justify-center"
-                >
-                  Message Patient
-                </button>
-              )}
-
-              {/* 2. THE COMPLETE SHIFT BUTTON (Triggers the Custom Modal!) */}
-              {job.status === 'matched' && (
-                <button 
-                  onClick={() => handleCompleteJobClick(job.id)} 
-                  className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition shadow-md flex items-center justify-center"
-                >
-                  Mark Shift Complete
-                </button>
-              )}
-            </div>
+    return (
+      <div className="animate-in fade-in duration-300 max-w-5xl">
+        <div className="flex justify-between items-end mb-8">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900 font-serif">My Cases</h2>
+            <p className="text-sm text-gray-500 font-medium">Manage your active shifts and review your history.</p>
           </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderAvailability = () => (
-    <div className="animate-in fade-in duration-300 max-w-2xl">
-      <div className="mb-8">
-        <h2 className="text-2xl font-black text-gray-900 font-serif">My Availability</h2>
-        <p className="text-sm text-gray-500 font-medium">Set the days you are available to take new care requests.</p>
-      </div>
-
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
-        <div className="flex justify-between items-center mb-6 border-b border-gray-50 pb-4">
-          <h3 className="font-bold text-gray-900 flex items-center"><Calendar className="w-5 h-5 mr-2 text-emerald-600"/> Weekly Schedule</h3>
-          <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">Auto-saves</span>
         </div>
 
-        <div className="space-y-3">
-          {Object.entries(schedule).map(([day, isAvailable]) => (
-            <div key={day} onClick={() => toggleDay(day)} className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition border ${isAvailable ? 'bg-emerald-50/50 border-emerald-100' : 'bg-gray-50 border-transparent hover:bg-gray-100'}`}>
-              <div className="flex items-center gap-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${isAvailable ? 'bg-emerald-600 text-white shadow-md' : 'bg-gray-200 text-gray-500'}`}>
-                  {day.charAt(0)}
-                </div>
-                <span className={`font-bold ${isAvailable ? 'text-gray-900' : 'text-gray-400'}`}>{day}day</span>
-              </div>
-              <div className="text-gray-400">
-                {isAvailable ? <ToggleRight className="w-8 h-8 text-emerald-600"/> : <ToggleLeft className="w-8 h-8"/>}
-              </div>
+        {/* SECTION 1: ACTIVE CASES COMMAND CENTER */}
+        <div className="mb-12">
+          <h3 className="font-black text-lg text-gray-900 mb-4 flex items-center border-b border-gray-200 pb-2">
+            <Activity className="w-5 h-5 mr-2 text-emerald-600"/> Current Active Cases
+          </h3>
+          
+          {activeCases.length === 0 ? (
+            <div className="p-8 bg-gray-50 border border-gray-200 border-dashed rounded-2xl text-center text-gray-500 font-medium">
+              You currently have no active cases. Check the available jobs or your invites!
             </div>
-          ))}
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {activeCases.map(job => (
+                <div key={job.id} className="bg-white p-6 rounded-2xl border-2 border-emerald-400 shadow-md relative overflow-hidden group hover:shadow-xl transition">
+                  <div className="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl">
+                    In Progress
+                  </div>
+                  
+                  <div className="flex items-center gap-3 mb-4 mt-2">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-black text-xl shrink-0">
+                      {job.patientPhoto ? <img src={job.patientPhoto} className="w-full h-full rounded-full object-cover"/> : (job.patientName || "P").charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Patient</p>
+                      <h4 className="font-black text-gray-900 text-lg leading-none">{job.patientName}</h4>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-gray-600 font-medium mb-1"><span className="font-bold">Role:</span> {job.roleNeeded}</p>
+                  <p className="text-sm text-gray-600 font-medium mb-6"><span className="font-bold">Location:</span> {job.location}</p>
+
+                  <button 
+                    onClick={() => router.push(`/cases/${job.id}`)}
+                    className="w-full bg-[#0a271f] hover:bg-black text-white font-black py-4 rounded-xl flex justify-center items-center gap-2 shadow-md transition"
+                  >
+                    Enter Case Room <ExternalLink className="w-5 h-5"/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* SECTION 2: PAST / COMPLETED CASES */}
+        <div>
+          <h3 className="font-black text-lg text-gray-900 mb-4 flex items-center border-b border-gray-200 pb-2">
+            <CheckCircle className="w-5 h-5 mr-2 text-gray-400"/> Past Shifts History
+          </h3>
+          
+          {pastCases.length === 0 ? (
+            <div className="p-8 bg-white border border-gray-100 rounded-2xl text-center text-gray-400 font-medium shadow-sm">
+              No completed shifts in your history yet.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {pastCases.map(job => (
+                <div key={job.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4 opacity-75 hover:opacity-100 transition">
+                  <div>
+                    <span className="inline-block px-2.5 py-1 text-[10px] bg-gray-100 text-gray-600 font-black uppercase tracking-widest rounded-md mb-2">
+                      Shift Completed
+                    </span>
+                    <h3 className="text-lg font-black text-gray-900">{job.patientName}</h3>
+                    <p className="text-gray-500 text-xs font-medium">{job.roleNeeded} • {job.location}</p>
+                  </div>
+                  
+                  {job.isReviewed ? (
+                     <span className="px-4 py-2 bg-amber-50 text-amber-600 font-bold text-xs rounded-lg border border-amber-100 flex items-center gap-1">
+                        <Star className="w-3 h-3 fill-amber-500"/> Patient Reviewed
+                     </span>
+                  ) : (
+                     <span className="px-4 py-2 bg-gray-50 text-gray-500 font-bold text-xs rounded-lg border border-gray-200">
+                        Awaiting Review
+                     </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+      </div>
+    );
+  };
+
+const renderAvailability = () => {
+    // Define the exact order you want the days to appear in the UI
+    const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    return (
+      <div className="animate-in fade-in duration-300 max-w-2xl">
+        <div className="mb-8">
+          <h2 className="text-2xl font-black text-gray-900 font-serif">My Availability</h2>
+          <p className="text-sm text-gray-500 font-medium">Set the days you are available to take new care requests.</p>
+        </div>
+
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
+          <div className="flex justify-between items-center mb-6 border-b border-gray-50 pb-4">
+            <h3 className="font-bold text-gray-900 flex items-center"><Calendar className="w-5 h-5 mr-2 text-emerald-600"/> Weekly Schedule</h3>
+            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">Auto-saves</span>
+          </div>
+
+          <div className="space-y-3">
+            {dayOrder.map((day) => {
+              // Get the current boolean value for the day (default to false if not found)
+              const isAvailable = schedule[day] || false; 
+
+              return (
+                <div key={day} onClick={() => toggleDay(day)} className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition border ${isAvailable ? 'bg-emerald-50/50 border-emerald-100' : 'bg-gray-50 border-transparent hover:bg-gray-100'}`}>
+                  <div className="flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${isAvailable ? 'bg-emerald-600 text-white shadow-md' : 'bg-gray-200 text-gray-500'}`}>
+                      {day.charAt(0)}
+                    </div>
+                    {/* Just print the day variable directly, don't append "day" manually */}
+                    <span className={`font-bold ${isAvailable ? 'text-gray-900' : 'text-gray-400'}`}>{day}</span> 
+                  </div>
+                  <div className="text-gray-400">
+                    {isAvailable ? <ToggleRight className="w-8 h-8 text-emerald-600"/> : <ToggleLeft className="w-8 h-8"/>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderMessages = () => {
     const activeChats = myJobs.filter(j => j.status === 'matched');
@@ -781,7 +778,6 @@ export default function NurseSaaSDashboard() {
     return (
       <div className="animate-in fade-in duration-300 h-[75vh] flex bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden max-w-5xl">
         
-        {/* LEFT: Active Cases Sidebar */}
         <div className="w-1/3 border-r border-gray-100 bg-gray-50/50 flex flex-col">
           <div className="p-5 border-b border-gray-100 bg-white">
             <h3 className="font-black text-gray-900">Active Chats</h3>
@@ -804,7 +800,6 @@ export default function NurseSaaSDashboard() {
           </div>
         </div>
 
-        {/* RIGHT: Chat Window */}
         <div className="flex-1 flex flex-col bg-white relative">
           {!activeChatId ? (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
@@ -898,7 +893,6 @@ export default function NurseSaaSDashboard() {
               <MessageSquare className="w-5 h-5 mr-3" /> Messages
             </button>
             
-            {/* NEW REVIEWS BUTTON */}
             <button onClick={() => setActiveTab('reviews')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'reviews' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
               <Star className="w-5 h-5 mr-3" /> My Reviews
             </button>
@@ -918,7 +912,7 @@ export default function NurseSaaSDashboard() {
              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Provider Portal</p>
              <h2 className="text-2xl font-black text-gray-900 font-serif">Good morning, {displayName.split(' ')[0]} 👋</h2>
            </div>
-            </header>
+        </header>
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {activeTab === 'dashboard' && renderDashboard()}
@@ -930,7 +924,7 @@ export default function NurseSaaSDashboard() {
         </main>
       </div>
 
-{/* --- CUSTOM CONFIRM COMPLETION MODAL --- */}
+      {/* --- CUSTOM CONFIRM COMPLETION MODAL --- */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95 text-center">

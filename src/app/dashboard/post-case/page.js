@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle, Loader2, UploadCloud, FileText } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, UploadCloud, FileText, MapPin } from 'lucide-react';
 
-// IMPORTING FIREBASE
+// IMPORTING FIREBASE & LOCATIONS
 import { auth, db, storage } from '@/lib/firebase'; 
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'; 
+import { nepalLocations, provinces } from '@/lib/nepalLocations'; // Make sure this path is correct for your app!
 
 export default function PostCareRequest() {
   const router = useRouter();
@@ -18,18 +19,23 @@ export default function PostCareRequest() {
   const [success, setSuccess] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   
-  // NEW: State for tracking the upload progress of multiple files
   const [uploadingFile, setUploadingFile] = useState(false); 
-  const [medicalFiles, setMedicalFiles] = useState([]); // Array to hold actual File objects
+  const [medicalFiles, setMedicalFiles] = useState([]); 
 
+  // 🚨 UPDATED FORM DATA STATE 🚨
   const [formData, setFormData] = useState({
     careType: 'In-Home Care',
     roleNeeded: 'Registered Nurse (RN)',
-    location: '',
+    province: '',
+    district: '',
+    city_zone: '',
+    address: '',
     urgency: 'This Week',
     details: ''
-    // Removed single medical_url from here, we will handle it in the submit function!
   });
+
+  const [availableDistricts, setAvailableDistricts] = useState([]);
+  const [availableZones, setAvailableZones] = useState([]);
 
   const careTypes = ['In-Home Care', 'Post-Surgical', 'Companionship', 'Facility Shift'];
   const urgencies = [
@@ -38,13 +44,30 @@ export default function PostCareRequest() {
     { label: 'Urgent', color: 'bg-red-50 text-red-700 hover:bg-red-100' }
   ];
 
-  // 1. SECURELY GET THE LOGGED-IN PATIENT
+  // 1. SECURELY GET THE LOGGED-IN PATIENT & PRE-FILL LOCATION
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         const docSnap = await getDoc(doc(db, 'users', user.uid));
         if (docSnap.exists()) {
-          setUserData({ id: user.uid, ...docSnap.data() });
+          const data = docSnap.data();
+          setUserData({ id: user.uid, ...data });
+
+          // AUTO-FILL LOCATION FROM PATIENT PROFILE
+          setFormData(prev => ({
+            ...prev,
+            province: data.province || '',
+            district: data.district || '',
+            city_zone: data.city_zone || '',
+            address: data.address || ''
+          }));
+
+          if (data.province && nepalLocations[data.province]) {
+            setAvailableDistricts(Object.keys(nepalLocations[data.province]));
+            if (data.district && nepalLocations[data.province][data.district]) {
+                setAvailableZones(nepalLocations[data.province][data.district]);
+            }
+          }
         }
         setPageLoading(false);
       } else {
@@ -54,16 +77,29 @@ export default function PostCareRequest() {
     return () => unsubscribe();
   }, [router]);
 
-  // 2. CAPTURE MULTIPLE FILES (Without uploading yet)
+  // LOCATION HANDLERS
+  const handleProvinceChange = (e) => {
+    const newProv = e.target.value;
+    setFormData({ ...formData, province: newProv, district: '', city_zone: '' });
+    setAvailableDistricts(newProv ? Object.keys(nepalLocations[newProv]) : []);
+    setAvailableZones([]);
+  };
+
+  const handleDistrictChange = (e) => {
+    const newDist = e.target.value;
+    setFormData({ ...formData, district: newDist, city_zone: '' });
+    setAvailableZones((formData.province && newDist) ? nepalLocations[formData.province][newDist] : []);
+  };
+
+  // 2. CAPTURE MULTIPLE FILES 
   const handleFileChange = (e) => {
     if (e.target.files) {
-      // Convert the FileList object into a standard JavaScript Array
       const selectedFiles = Array.from(e.target.files);
       setMedicalFiles(selectedFiles);
     }
   };
 
-  // 3. THE REAL FIREBASE SUBMIT FUNCTION (Now handles array of uploads)
+  // 3. THE REAL FIREBASE SUBMIT FUNCTION
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -71,15 +107,12 @@ export default function PostCareRequest() {
     try {
       let uploadedUrls = [];
 
-      // If they selected files, upload them all first
       if (medicalFiles.length > 0) {
-        setUploadingFile(true); // Changes button text to "Uploading Files..."
+        setUploadingFile(true); 
         
-        // Promise.all uploads all files in the array simultaneously for speed
         uploadedUrls = await Promise.all(
           medicalFiles.map(async (file, index) => {
             const fileExt = file.name.split('.').pop();
-            // Added index to filename to ensure unique names if uploaded at the exact same millisecond
             const fileName = `medical_${userData.id}_${Date.now()}_${index}.${fileExt}`;
             const storageRef = ref(storage, `medical_records/${fileName}`);
             
@@ -91,13 +124,16 @@ export default function PostCareRequest() {
         setUploadingFile(false);
       }
 
-      // Now create the main document and attach the array of URLs
+      // Create a combined string for the UI display, but save individual fields for strict matching!
+      const combinedLocationDisplay = `${formData.city_zone}, ${formData.district}`;
+
       await addDoc(collection(db, "care_requests"), {
         ...formData,
+        location: combinedLocationDisplay, // Used for displaying on the Nurse Dashboard cards
         patientId: userData.id, 
         patientName: userData.name || userData.full_name || "Patient",
         patientPhoto: userData.photoURL || userData.avatar_url || "",
-        medical_urls: uploadedUrls, // NEW: Saves the array of URLs to the database!
+        medical_urls: uploadedUrls, 
         status: "searching", 
         createdAt: serverTimestamp(),
       });
@@ -120,7 +156,6 @@ export default function PostCareRequest() {
   const labelClass = "block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3";
   const inputClass = "w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-600 outline-none transition-all bg-[#fbfaf8] text-gray-900 font-medium text-base";
 
-  // LOADING STATE
   if (pageLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fdfcf9]">
@@ -129,7 +164,6 @@ export default function PostCareRequest() {
     );
   }
 
-  // SUCCESS STATE
   if (success) {
     return (
       <div className="min-h-screen bg-[#fdfcf9] flex flex-col items-center justify-center p-6">
@@ -160,7 +194,7 @@ export default function PostCareRequest() {
               What kind of <br/>care do you <span className="text-emerald-600 italic">need?</span>
             </h1>
             <p className="text-lg text-gray-500 leading-relaxed">
-              Describe your need and attach any relevant medical documents. We'll instantly match you with verified professionals.
+              Describe your need and attach any relevant medical documents. We'll instantly match you with verified professionals in your area.
             </p>
           </div>
         </div> 
@@ -188,30 +222,53 @@ export default function PostCareRequest() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className={labelClass}>Professional Role Needed</label>
-                <select 
-                  value={formData.roleNeeded} 
-                  onChange={(e) => setFormData({...formData, roleNeeded: e.target.value})}
-                  className={inputClass}
-                >
-                  <option value="Registered Nurse (RN)">Registered Nurse (RN)</option>
-                  <option value="Licensed Practical Nurse (LPN)">Licensed Practical Nurse (LPN)</option>
-                  <option value="Certified Caregiver">Certified Caregiver</option>
-                  <option value="Physical Therapist">Physical Therapist</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Location</label>
-                <input 
-                  type="text" 
-                  required
-                  value={formData.location}
-                  onChange={(e) => setFormData({...formData, location: e.target.value})}
-                  className={inputClass} 
-                  placeholder="e.g. Kathmandu, Ward 4" 
-                />
+            <div>
+              <label className={labelClass}>Professional Role Needed</label>
+              <select 
+                value={formData.roleNeeded} 
+                onChange={(e) => setFormData({...formData, roleNeeded: e.target.value})}
+                className={inputClass}
+              >
+                <option value="Registered Nurse (RN)">Registered Nurse (RN)</option>
+                <option value="Licensed Practical Nurse (LPN)">Licensed Practical Nurse (LPN)</option>
+                <option value="Certified Caregiver">Certified Caregiver</option>
+                <option value="Physical Therapist">Physical Therapist</option>
+              </select>
+            </div>
+
+            {/* 🚨 UPDATED LOCATION GRID 🚨 */}
+            <div className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100 space-y-4">
+              <label className="text-sm font-black text-gray-900 flex items-center mb-4"><MapPin className="w-5 h-5 mr-2 text-emerald-600"/> Care Location</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Province *</label>
+                  <select name="province" value={formData.province} onChange={handleProvinceChange} className={inputClass} required>
+                      <option value="">Select Province</option>
+                      {provinces.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">District *</label>
+                  <select name="district" value={formData.district} onChange={handleDistrictChange} className={inputClass} required disabled={!formData.province}>
+                      <option value="">Select District</option>
+                      {availableDistricts.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">City / Zone *</label>
+                  {availableZones.length > 0 ? (
+                      <select name="city_zone" value={formData.city_zone} onChange={(e) => setFormData({...formData, city_zone: e.target.value})} className={inputClass} required disabled={!formData.district}>
+                          <option value="">Select City/Zone</option>
+                          {availableZones.map(z => <option key={z} value={z}>{z}</option>)}
+                      </select>
+                  ) : (
+                      <input type="text" name="city_zone" value={formData.city_zone} onChange={(e) => setFormData({...formData, city_zone: e.target.value})} className={inputClass} placeholder="City name" required disabled={!formData.district}/>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Street Address *</label>
+                  <input type="text" name="address" value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} className={inputClass} placeholder="e.g. Bhanu Chowk" required />
+                </div>
               </div>
             </div>
 
@@ -246,7 +303,6 @@ export default function PostCareRequest() {
               />
             </div>
 
-            {/* UPGRADED: MULTIPLE MEDICAL FILE UPLOAD */}
             <div className="pt-4 border-t border-gray-100">
               <label className={labelClass}>Medical Documents / Prescriptions (Optional)</label>
               <label className={`mt-2 inline-flex w-full items-center justify-center px-6 py-6 border-2 border-dashed rounded-xl cursor-pointer transition ${medicalFiles.length > 0 ? 'bg-emerald-50 border-emerald-600 text-emerald-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
@@ -254,11 +310,9 @@ export default function PostCareRequest() {
                   <span className="font-bold text-sm">
                     {medicalFiles.length > 0 ? `${medicalFiles.length} file(s) selected (Click to change)` : "Click to select Medical Files (PDF/Image)"}
                   </span>
-                  {/* Notice the 'multiple' attribute here! */}
                   <input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
               </label>
 
-              {/* Display the names of the files they just selected */}
               {medicalFiles.length > 0 && (
                 <div className="mt-4 space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Selected Files:</p>
@@ -271,7 +325,6 @@ export default function PostCareRequest() {
               )}
             </div>
 
-            {/* DYNAMIC BUTTON TEXT based on upload state */}
             <button 
               type="submit" 
               disabled={submitting || uploadingFile} 

@@ -16,31 +16,28 @@ export default function NursePublicProfile() {
   
   const [nurseData, setNurseData] = useState(null);
   const [patientData, setPatientData] = useState(null);
-  const [patientActiveCases, setPatientActiveCases] = useState([]); // NEW: Store patient's cases
+  const [patientActiveCases, setPatientActiveCases] = useState([]); 
   
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState([]);
   const [completedJobsCount, setCompletedJobsCount] = useState(0);
 
-  // Modal State
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [selectedCaseId, setSelectedCaseId] = useState(""); // NEW: Which case are they inviting the nurse to?
+  const [selectedCaseId, setSelectedCaseId] = useState(""); 
 
   // ==========================================
   // 1. FETCH NURSE & PATIENT DATA
   // ==========================================
   useEffect(() => {
     const fetchData = async () => {
-      // Get Logged-in Patient Identity & Their Active Cases
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
         if (user) {
           const pDoc = await getDoc(doc(db, 'users', user.uid));
           if (pDoc.exists()) {
             setPatientData({ id: user.uid, ...pDoc.data() });
             
-            // Fetch this patient's ACTIVE cases so they can invite the nurse to them!
             const q = query(collection(db, "care_requests"), where("patientId", "==", user.uid), where("status", "==", "searching"));
             const caseSnap = await getDocs(q);
             setPatientActiveCases(caseSnap.docs.map(d => ({id: d.id, ...d.data()})));
@@ -55,7 +52,6 @@ export default function NursePublicProfile() {
         if (nDoc.exists()) {
           setNurseData({ id: nDoc.id, ...nDoc.data() });
 
-          // Fetch their completed jobs and reviews
           const q = query(collection(db, "care_requests"), where("nurseId", "==", id), where("status", "==", "completed"));
           const reviewSnap = await getDocs(q);
           
@@ -97,10 +93,9 @@ export default function NursePublicProfile() {
     setSubmitting(true);
     
     try {
-      // Update the existing case to be a direct invite for this specific nurse
       await updateDoc(doc(db, "care_requests", selectedCaseId), {
         targetNurseId: nurseData.id,
-        status: "direct_request" // This moves it to the Nurse's direct inbox!
+        status: "direct_request" 
       });
 
       setSubmitting(false);
@@ -135,17 +130,21 @@ export default function NursePublicProfile() {
   const displayPhoto = nurseData.photoURL || nurseData.avatar_url || null;
   const displayRole = nurseData.specialty || nurseData.role || "Professional Caregiver";
 
+  // 🚨 NEW: Fetching dynamic schedule or setting a default 🚨
+  const schedule = nurseData.availabilitySchedule || {
+    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+  };
+  const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
   return (
     <div className="min-h-screen bg-[#f4f7f6] font-sans pb-24">
       
       <main className="max-w-5xl mx-auto px-6 pt-8">
         
-        {/* NEW: CLEAN BACK BUTTON */}
         <button onClick={() => router.back()} className="flex items-center text-gray-400 hover:text-emerald-600 transition font-bold text-sm mb-6">
           <ArrowLeft className="w-5 h-5 mr-2" /> Back to Search
         </button>
 
-        {/* HEADER PROFILE CARD */}
         <div className="bg-white rounded-3xl p-8 lg:p-12 shadow-sm border border-gray-100 mb-8 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-bl-full -z-10 opacity-50"></div>
           
@@ -223,12 +222,20 @@ export default function NursePublicProfile() {
             <div className="bg-[#0a271f] text-white rounded-3xl p-8 shadow-xl">
               <h3 className="text-xl font-black mb-6 flex items-center"><Clock className="w-5 h-5 mr-3 text-emerald-400"/> Current Availability</h3>
               <div className="space-y-3">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(day => (
-                  <div key={day} className="flex justify-between items-center py-2 border-b border-emerald-900/50">
-                    <span className="font-bold text-emerald-100">{day}</span>
-                    <span className="text-xs font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded">Available</span>
-                  </div>
-                ))}
+                {/* 🚨 UPDATED: Dynamic Schedule Render 🚨 */}
+                {dayOrder.map(day => {
+                  const isAvailable = schedule[day] || false;
+                  return (
+                    <div key={day} className="flex justify-between items-center py-2 border-b border-emerald-900/50">
+                      <span className={`font-bold ${isAvailable ? 'text-emerald-100' : 'text-gray-500 line-through'}`}>{day}</span>
+                      {isAvailable ? (
+                        <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded">Available</span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase tracking-widest bg-gray-800 text-gray-400 px-2 py-1 rounded">Off Duty</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

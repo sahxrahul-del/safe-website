@@ -30,9 +30,15 @@ const handleGoogleLogin = async () => {
       const userDocRef = doc(db, "users", result.user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      if (userDocSnap.exists()) {
-        // SMART ROUTING BASED ON ROLE
+      
+      if (userDocSnap.exists()) {        
         const userData = userDocSnap.data();
+        
+        // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
+        document.cookie = `userRole=${userData.role}; path=/; max-age=${60 * 60 * 24 * 7};`;
+        document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+
+        // SMART ROUTING BASED ON ROLE
         if (userData.role === 'admin') {
           router.push('/admin');
         } else if (userData.role === 'nurse' || userData.role === 'provider') {
@@ -62,8 +68,13 @@ const handleGoogleLogin = async () => {
       const userDocSnap = await getDoc(userDocRef);
 
       if (userDocSnap.exists()) {
-        // SMART ROUTING BASED ON ROLE
         const userData = userDocSnap.data();
+
+        // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
+        document.cookie = `userRole=${userData.role}; path=/; max-age=${60 * 60 * 24 * 7};`;
+        document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+
+        // SMART ROUTING BASED ON ROLE
         if (userData.role === 'admin') {
           router.push('/admin');
         } else if (userData.role === 'nurse' || userData.role === 'provider') {
