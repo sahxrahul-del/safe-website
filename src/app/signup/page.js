@@ -39,16 +39,20 @@ export default function Signup() {
         const result = await getRedirectResult(auth);
         if (result) {
           setLoading(true);
-          // For a NEW signup via Google, we don't have a DB entry yet.
-          // We set the auth cookie and send them straight to setup.
-          document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
           
-          // We use the role from the URL to guide their setup
-          router.push(`/profile?setup=true&role=${role}`);
+          // 1. Set the ID badge first
+          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax;`;
+          
+          // 2. 🚨 THE TRICK: Wait 100ms for the browser to register the cookie
+          // before moving the user. This prevents the Middleware from 
+          // thinking they are still logged out.
+          setTimeout(() => {
+            router.push(`/profile?setup=true&role=${role}`);
+          }, 150);
         }
       } catch (error) {
         console.error("Signup Redirect Error:", error);
-        setErrorMessage("Failed to complete Google signup. Please try again.");
+        setErrorMessage("Failed to complete Google signup.");
       } finally {
         setLoading(false);
       }

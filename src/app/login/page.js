@@ -29,40 +29,37 @@ export default function Login() {
   // ==========================================
   // This "catches" the user when they return from Google
   useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          setLoading(true);
-          const userDocRef = doc(db, "users", result.user.uid);
-          const userDocSnap = await getDoc(userDocRef);
+  const checkRedirect = async () => {
+    try {
+      const result = await getRedirectResult(auth);
+      if (result) {
+        setLoading(true);
+        const userDocRef = doc(db, "users", result.user.uid);
+        const userDocSnap = await getDoc(userDocRef);
 
-          if (userDocSnap.exists()) {
-            const userData = userDocSnap.data();
-            
-            // Set Cookies for Middleware
-            document.cookie = `userRole=${userData.role}; path=/; max-age=${60 * 60 * 24 * 7};`;
-            document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+        // 🚨 CRITICAL: Set cookies FIRST
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax;`;
+          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax;`;
 
-            // Smart Routing
-            const target = userData.role === 'admin' ? '/admin' : `/dashboard/${(userData.role === 'nurse' || userData.role === 'provider') ? 'nurse' : 'patient'}`;
-            router.push(target);
-          } else {
-            // New user via Google, set auth cookie and send to setup
-            document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+          // Give the browser a tiny millisecond to register the cookie
+          setTimeout(() => {
+            router.push(userData.role === 'admin' ? '/admin' : `/dashboard/${userData.role === 'nurse' ? 'nurse' : 'patient'}`);
+          }, 100);
+        } else {
+          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax;`;
+          setTimeout(() => {
             router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
-          }
+          }, 100);
         }
-      } catch (error) {
-        console.error("Redirect Result Error:", error);
-        setErrorMessage("Failed to complete Google login. Please try again.");
-      } finally {
-        setLoading(false);
       }
-    };
-
-    checkRedirect();
-  }, [router, roleParam]);
+    } catch (error) {
+      console.error("Redirect Error:", error);
+    }
+  };
+  checkRedirect();
+}, [router]);
 
   // ==========================================
   // UPDATED: GOOGLE LOGIN (USE REDIRECT)

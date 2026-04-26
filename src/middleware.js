@@ -7,12 +7,19 @@ export async function middleware(request) {
   const isAuthenticated = request.cookies.get('isAuthenticated')?.value === 'true';
   const role = request.cookies.get('userRole')?.value; 
 
-  // 2. Define Public Routes
+  // 2. Ignore static assets & API routes (performance)
+  if (path.startsWith('/_next') || path.includes('.') || path.startsWith('/api')) {
+    return NextResponse.next();
+  }
+
+  // 3. Define Public Routes
   const publicPaths = ['/', '/login', '/signup', '/forgot-password', '/contact'];
   const isPublicPath = publicPaths.some(p => path === p);
-  
-  // Ignore static assets (images, css, etc.)
-  if (path.startsWith('/_next') || path.includes('.') || path.startsWith('/api')) {
+
+  // 🚨 CRITICAL FIX: AUTH PAGE BYPASS 🚨
+  // If they are on Login or Signup, let them stay there WITHOUT checks.
+  // This prevents the loop while Firebase is processing the Google Redirect.
+  if (path === '/login' || path === '/signup') {
     return NextResponse.next();
   }
 
@@ -23,24 +30,23 @@ export async function middleware(request) {
     const homeBases = {
       admin: '/admin',
       nurse: '/dashboard/nurse',
-      provider: '/dashboard/nurse', // alias
+      provider: '/dashboard/nurse', 
       patient: '/dashboard/patient',
-      family: '/dashboard/patient'   // alias
+      family: '/dashboard/patient'
     };
 
     const myDashboard = homeBases[role] || '/';
 
-    // 🟢 BLOCK AUTH PAGES: If logged in, don't show Login/Signup/Home
-    if (path === '/login' || path === '/signup' || path === '/') {
+    // 🟢 PREVENT RE-AUTH: If logged in, don't let them see the landing page '/'
+    if (path === '/') {
       return NextResponse.redirect(new URL(myDashboard, request.url));
     }
 
-    // 🔴 LANE ENFORCEMENT: Nurse trying to enter Patient area
+    // 🔴 LANE ENFORCEMENT: Keep Nurses and Patients in their own dashboards
     if (path.startsWith('/dashboard/patient') && (role === 'nurse' || role === 'provider')) {
       return NextResponse.redirect(new URL('/dashboard/nurse', request.url));
     }
 
-    // 🔴 LANE ENFORCEMENT: Patient trying to enter Nurse area
     if (path.startsWith('/dashboard/nurse') && (role === 'patient' || role === 'family')) {
       return NextResponse.redirect(new URL('/dashboard/patient', request.url));
     }
@@ -55,7 +61,7 @@ export async function middleware(request) {
 
   // --- CASE B: USER IS LOGGED OUT ---
   if (!isAuthenticated) {
-    // If trying to access ANY private route, kick to login
+    // If they are trying to reach a private page (not in publicPaths), kick them to login
     if (!isPublicPath) {
       return NextResponse.redirect(new URL('/login', request.url));
     }
@@ -66,7 +72,6 @@ export async function middleware(request) {
 
 export const config = {
   matcher: [
-    // This regex ensures it runs on all routes except static assets
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
