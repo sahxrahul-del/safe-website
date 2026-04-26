@@ -1,19 +1,22 @@
-//login
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { auth, db, googleProvider } from '../../lib/firebase';
-import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { 
+  signInWithEmailAndPassword, 
+  signInWithRedirect, 
+  getRedirectResult 
+} from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function Login() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const roleParam = searchParams.get('role'); // Checks if they clicked "For Nurses" in Navbar
+  const roleParam = searchParams.get('role');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,40 +24,63 @@ export default function Login() {
   const [errorMessage, setErrorMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-const handleGoogleLogin = async () => {
+  // ==========================================
+  // NEW: HANDLE REDIRECT RESULT (FOR GOOGLE)
+  // ==========================================
+  // This "catches" the user when they return from Google
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          setLoading(true);
+          const userDocRef = doc(db, "users", result.user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            
+            // Set Cookies for Middleware
+            document.cookie = `userRole=${userData.role}; path=/; max-age=${60 * 60 * 24 * 7};`;
+            document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+
+            // Smart Routing
+            const target = userData.role === 'admin' ? '/admin' : `/dashboard/${(userData.role === 'nurse' || userData.role === 'provider') ? 'nurse' : 'patient'}`;
+            router.push(target);
+          } else {
+            // New user via Google, set auth cookie and send to setup
+            document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+            router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
+          }
+        }
+      } catch (error) {
+        console.error("Redirect Result Error:", error);
+        setErrorMessage("Failed to complete Google login. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkRedirect();
+  }, [router, roleParam]);
+
+  // ==========================================
+  // UPDATED: GOOGLE LOGIN (USE REDIRECT)
+  // ==========================================
+  const handleGoogleLogin = async () => {
     setErrorMessage('');
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      
-      // CHECK DATABASE: Does this Google account already have a profile?
-      const userDocRef = doc(db, "users", result.user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-
-      
-      if (userDocSnap.exists()) {        
-        const userData = userDocSnap.data();
-        
-        // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
-        document.cookie = `userRole=${userData.role}; path=/; max-age=${60 * 60 * 24 * 7};`;
-        document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
-
-        // SMART ROUTING BASED ON ROLE
-        if (userData.role === 'admin') {
-          router.push('/admin');
-        } else if (userData.role === 'nurse' || userData.role === 'provider') {
-          router.push('/dashboard/nurse');
-        } else {
-          router.push('/dashboard/patient');
-        }
-      } else {
-        router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
-      }
+      // Swapped from signInWithPopup to signInWithRedirect for better production stability
+      await signInWithRedirect(auth, googleProvider);
     } catch (error) {
       console.error("Google Login Error:", error);
       setErrorMessage(error.message);
     }
   };
 
+  // ==========================================
+  // EMAIL & PASSWORD LOGIN
+  // ==========================================
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -62,19 +88,15 @@ const handleGoogleLogin = async () => {
 
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-      
-      // CHECK DATABASE for Email users too!
       const userDocRef = doc(db, "users", result.user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
       if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
 
-        // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
         document.cookie = `userRole=${userData.role}; path=/; max-age=${60 * 60 * 24 * 7};`;
         document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
 
-        // SMART ROUTING BASED ON ROLE
         if (userData.role === 'admin') {
           router.push('/admin');
         } else if (userData.role === 'nurse' || userData.role === 'provider') {
@@ -99,10 +121,8 @@ const handleGoogleLogin = async () => {
     <div className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 flex flex-col lg:flex-row">
         
-        {/* --- LEFT SIDE: BRANDING with Watermark Logo --- */}
+        {/* LEFT SIDE: BRANDING */}
         <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center overflow-hidden">
-          
-          {/* 1. REPLACE THIS URL with your image path (e.g., "/login-bg.jpg") */}
           <Image 
             src="/login-background.jpg" 
             alt="Login Background" 
@@ -111,16 +131,10 @@ const handleGoogleLogin = async () => {
             priority={true}
             className="z-0 object-cover"
           />
-          
-          {/* 2. Gradient Overlay for Text Readability (Optional, adjusting opacity for visibility) */}
           <div className="absolute inset-0 bg-gradient-to-br from-[#0a271f]/80 to-emerald-900/80 z-10" />
-          
-          {/* 3. --- LARGE WATERMARK LOGO (Dynamic placement/size) --- */}
           <div className="absolute top-[10%] left-[5%] text-[200px] font-serif z-5 text-emerald-300 opacity-20 pointer-events-none select-none">
             Safe.
           </div>
-
-          {/* 4. Text Content (Above everything else) */}
           <div className="relative z-20 text-white p-12 text-center max-w-lg">
             <h2 className="text-4xl font-extrabold mb-6 tracking-tight leading-tight">Welcome back <br/> to Safe.</h2>
             <p className="text-lg text-emerald-100 font-medium">Connecting families with Nepal's most trusted, verified healthcare professionals.</p>
@@ -143,9 +157,9 @@ const handleGoogleLogin = async () => {
             )}
 
             <div className="space-y-4">
-              <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-semibold text-gray-700">
+              <button onClick={handleGoogleLogin} disabled={loading} className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-semibold text-gray-700 disabled:opacity-50">
                 <Image src="https://www.svgrepo.com/show/475656/google-color.svg" width={20} height={20} alt="Google" className="w-5 h-5" />
-                Continue with Google
+                {loading ? "Processing..." : "Continue with Google"}
               </button>
 
               <div className="relative">

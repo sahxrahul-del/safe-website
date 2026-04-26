@@ -1,18 +1,22 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowLeft, AlertCircle, CheckCircle, Eye, EyeOff, Loader2, HeartPulse } from 'lucide-react';
 import { auth, googleProvider } from '../../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithPopup, sendEmailVerification } from 'firebase/auth';
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithRedirect, // Swapped
+  getRedirectResult,  // Added
+  sendEmailVerification 
+} from 'firebase/auth';
 
 export default function Signup() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // Strictly read the role from the URL. No more toggle state!
   const role = searchParams.get('role') === 'nurse' ? 'nurse' : 'patient';
 
   const [loading, setLoading] = useState(false);
@@ -26,20 +30,44 @@ export default function Signup() {
     licenseNumber: '', specialty: ''
   });
 
+  // ==========================================
+  // NEW: HANDLE REDIRECT RESULT (FOR GOOGLE)
+  // ==========================================
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          setLoading(true);
+          // For a NEW signup via Google, we don't have a DB entry yet.
+          // We set the auth cookie and send them straight to setup.
+          document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
+          
+          // We use the role from the URL to guide their setup
+          router.push(`/profile?setup=true&role=${role}`);
+        }
+      } catch (error) {
+        console.error("Signup Redirect Error:", error);
+        setErrorMessage("Failed to complete Google signup. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkRedirect();
+  }, [router, role]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setErrorMessage('');
   };
 
+  // ==========================================
+  // UPDATED: GOOGLE SIGNUP (USE REDIRECT)
+  // ==========================================
   const handleGoogleLogin = async () => {
+    setErrorMessage('');
     try {
-      await signInWithPopup(auth, googleProvider);
-
-      // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
-      document.cookie = `userRole=${role}; path=/; max-age=${60 * 60 * 24 * 7};`;
-      document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
-
-      router.push(`/profile?setup=true&role=${role}`);
+      await signInWithRedirect(auth, googleProvider);
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -59,15 +87,10 @@ export default function Signup() {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
      
-      // 🚨 NEW: SET COOKIES FOR MIDDLEWARE 🚨
-      // We use the 'role' variable you defined at the top of your file from the URL params!
-      document.cookie = `userRole=${role}; path=/; max-age=${60 * 60 * 24 * 7};`;
+      // Set initial Auth cookie
       document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
       
-      // 1. Send the Verification Email
       await sendEmailVerification(userCredential.user);
-      
-      // 2. Show the "Check your Email" screen instead of redirecting instantly
       setShowVerification(true);
 
     } catch (error) {
@@ -103,7 +126,6 @@ export default function Signup() {
             </p>
             <p className="text-sm text-gray-400 mb-8">Please click the link in your email to activate your account.</p>
             
-            {/* Added the dynamic role to the login push so they stay on the right track */}
             <Link href={`/login?role=${role}`} className="w-full block bg-[#0a271f] text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-900 transition shadow-lg">
                 I have verified my email →
             </Link>
@@ -120,9 +142,9 @@ export default function Signup() {
             </div>
 
             <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg border border-gray-100">
-              <button onClick={handleGoogleLogin} className="w-full mb-8 flex items-center justify-center gap-3 border border-gray-300 py-3.5 rounded-xl hover:bg-gray-50 transition font-bold text-gray-700">
+              <button onClick={handleGoogleLogin} disabled={loading} className="w-full mb-8 flex items-center justify-center gap-3 border border-gray-300 py-3.5 rounded-xl hover:bg-gray-50 transition font-bold text-gray-700">
                 <Image src="https://www.svgrepo.com/show/475656/google-color.svg" width={20} height={20} alt="Google" className="w-5 h-5" />
-                Sign up with Google
+                {loading ? "Processing..." : "Sign up with Google"}
               </button>
 
               <div className="relative mb-8">
@@ -139,7 +161,6 @@ export default function Signup() {
 
               <form onSubmit={handleSignup} className="space-y-6">
                 
-                {/* Dynamically render nurse fields ONLY if role is nurse */}
                 {role === 'nurse' && (
                   <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 space-y-4">
                     <h3 className="font-bold text-emerald-900 flex items-center"><HeartPulse className="w-4 h-4 mr-2"/> Professional Details</h3>
