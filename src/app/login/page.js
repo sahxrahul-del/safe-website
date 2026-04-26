@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -24,95 +24,69 @@ export default function Login() {
   const [errorMessage, setErrorMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // ==========================================
-  // NEW: HANDLE REDIRECT RESULT (FOR GOOGLE)
-  // ==========================================
-  // This "catches" the user when they return from Google
+  // Catch Google Redirect Results
   useEffect(() => {
-  const checkRedirect = async () => {
-    try {
-      const result = await getRedirectResult(auth);
-      if (result) {
-        setLoading(true);
-        const userDocRef = doc(db, "users", result.user.uid);
-        const userDocSnap = await getDoc(userDocRef);
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          setLoading(true);
+          const userDocRef = doc(db, "users", result.user.uid);
+          const userDocSnap = await getDoc(userDocRef);
 
-        // 🚨 CRITICAL: Set cookies FIRST
-        if (userDocSnap.exists()) {
-          const userData = userDocSnap.data();
-          // This tells the browser: "Save this immediately and make it available for the next request"
-             document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax; Secure`;
-             document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax; Secure`;
+            document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
 
-          // Give the browser a tiny millisecond to register the cookie
-          setTimeout(() => {
-            router.push(userData.role === 'admin' ? '/admin' : `/dashboard/${userData.role === 'nurse' ? 'nurse' : 'patient'}`);
-          }, 100);
-        } else {
-          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax;`;
-          setTimeout(() => {
-            router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
-          }, 100);
+            // Hard redirect forces middleware to evaluate new cookies
+            window.location.href = userData.role === 'admin' ? '/admin' : `/dashboard/${userData.role === 'nurse' ? 'nurse' : 'patient'}`;
+          } else {
+            document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+            window.location.href = `/profile?setup=true&role=${roleParam || 'patient'}`;
+          }
         }
+      } catch (error) {
+        console.error("Redirect Error:", error);
       }
-    } catch (error) {
-      console.error("Redirect Error:", error);
-    }
-  };
-  checkRedirect();
-}, [router]);
+    };
+    checkRedirect();
+  }, [roleParam]);
 
-  // ==========================================
-  // UPDATED: GOOGLE LOGIN (USE REDIRECT)
-  // ==========================================
   const handleGoogleLogin = async () => {
     setErrorMessage('');
     try {
-      // Swapped from signInWithPopup to signInWithRedirect for better production stability
       await signInWithRedirect(auth, googleProvider);
     } catch (error) {
-      console.error("Google Login Error:", error);
       setErrorMessage(error.message);
     }
   };
 
-  // ==========================================
-  // EMAIL & PASSWORD LOGIN
-  // ==========================================
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setErrorMessage('');
+    setLoading(true); setErrorMessage('');
 
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-      const userDocRef = doc(db, "users", result.user.uid);
-      const userDocSnap = await getDoc(userDocRef);
+      const userDocSnap = await getDoc(doc(db, "users", result.user.uid));
 
       if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
-
-        document.cookie = `userRole=${userData.role}; path=/; max-age=${60 * 60 * 24 * 7};`;
-        document.cookie = `isAuthenticated=true; path=/; max-age=${60 * 60 * 24 * 7};`;
-
-        if (userData.role === 'admin') {
-          router.push('/admin');
-        } else if (userData.role === 'nurse' || userData.role === 'provider') {
-          router.push('/dashboard/nurse');
-        } else {
-          router.push('/dashboard/patient');
-        }
+        document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax; Secure`;
+        document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+        
+        window.location.href = userData.role === 'admin' ? '/admin' : `/dashboard/${userData.role === 'nurse' ? 'nurse' : 'patient'}`;
       } else {
-        router.push(`/profile?setup=true&role=${roleParam || 'patient'}`);
+        document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+        window.location.href = `/profile?setup=true&role=${roleParam || 'patient'}`;
       }
     } catch (error) {
-      console.error("Actual Login Error:", error);
       setErrorMessage("Invalid credentials. Please check your email and password.");
     } finally {
       setLoading(false);
     }
   };
-    
+
   const inputClass = "w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-600 focus:border-transparent outline-none transition-all bg-gray-50 focus:bg-white text-gray-900";
 
   return (
@@ -121,18 +95,9 @@ export default function Login() {
         
         {/* LEFT SIDE: BRANDING */}
         <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center overflow-hidden">
-          <Image 
-            src="/login-background.jpg" 
-            alt="Login Background" 
-            fill
-            sizes="(max-width: 1024px) 100vw, 50vw"
-            priority={true}
-            className="z-0 object-cover"
-          />
+          <Image src="/login-background.jpg" alt="Login Background" fill sizes="(max-width: 1024px) 100vw, 50vw" priority={true} className="z-0 object-cover" />
           <div className="absolute inset-0 bg-gradient-to-br from-[#0a271f]/80 to-emerald-900/80 z-10" />
-          <div className="absolute top-[10%] left-[5%] text-[200px] font-serif z-5 text-emerald-300 opacity-20 pointer-events-none select-none">
-            Safe.
-          </div>
+          <div className="absolute top-[10%] left-[5%] text-[200px] font-serif z-5 text-emerald-300 opacity-20 pointer-events-none select-none">Safe.</div>
           <div className="relative z-20 text-white p-12 text-center max-w-lg">
             <h2 className="text-4xl font-extrabold mb-6 tracking-tight leading-tight">Welcome back <br/> to Safe.</h2>
             <p className="text-lg text-emerald-100 font-medium">Connecting families with Nepal's most trusted, verified healthcare professionals.</p>
