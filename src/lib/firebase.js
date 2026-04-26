@@ -3,14 +3,15 @@ import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
+// Using Environment Variables for better security and Vercel compatibility
 const firebaseConfig = {
-  apiKey: "AIzaSyBDzMy8NUGGknBSVjVYwd2hBpQ2uR-O6n4",
-  authDomain: "safe-app-58b85.firebaseapp.com",
-  projectId: "safe-app-58b85",
-  storageBucket: "safe-app-58b85.firebasestorage.app",
-  messagingSenderId: "348822076296",
-  appId: "1:348822076296:web:0872fcb304e8534c54183d",
-  measurementId: "G-2BWL825F9B"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
