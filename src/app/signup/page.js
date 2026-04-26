@@ -33,32 +33,35 @@ export default function Signup() {
   // ==========================================
   // NEW: HANDLE REDIRECT RESULT (FOR GOOGLE)
   // ==========================================
-  useEffect(() => {
-  const checkRedirect = async () => {
+ // Inside your Signup component
+useEffect(() => {
+  const handleRedirect = async () => {
     try {
+      // This line is what actually "creates" the user in the Firebase list
       const result = await getRedirectResult(auth);
-      if (result) {
+      
+      if (result && result.user) {
         setLoading(true);
         
-        // 1. Set the cookies
+        // 1. Force the cookies so the Middleware knows who we are
         document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
-        
-        // 2. IMPORTANT: If you have the role, set it too
-        if (role) {
-          document.cookie = `userRole=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
-        }
+        document.cookie = `userRole=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
 
-        // 3. HARD REDIRECT: This forces the middleware to re-evaluate
+        // 2. Clear any old session data
+        console.log("User created/logged in:", result.user.email);
+
+        // 3. Jump to the setup page
         setTimeout(() => {
           window.location.href = `/profile?setup=true&role=${role}`;
-        }, 500); // Give it a half-second to settle
+        }, 500);
       }
     } catch (error) {
-      console.error(error);
-      setLoading(false);
+      console.error("Auth Error:", error.code, error.message);
+      setErrorMessage("Auth failed: " + error.message);
     }
   };
-  checkRedirect();
+
+  handleRedirect();
 }, [role]);
 
   const handleChange = (e) => {
