@@ -34,31 +34,32 @@ export default function Signup() {
   // NEW: HANDLE REDIRECT RESULT (FOR GOOGLE)
   // ==========================================
   useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          setLoading(true);
-          
-          // 1. Set the ID badge first
-          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax;`;
-          
-          // 2. 🚨 THE TRICK: Wait 100ms for the browser to register the cookie
-          // before moving the user. This prevents the Middleware from 
-          // thinking they are still logged out.
-          setTimeout(() => {
-            router.push(`/profile?setup=true&role=${role}`);
-          }, 150);
+  const checkRedirect = async () => {
+    try {
+      const result = await getRedirectResult(auth);
+      if (result) {
+        setLoading(true);
+        
+        // 1. Set the cookies
+        document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+        
+        // 2. IMPORTANT: If you have the role, set it too
+        if (role) {
+          document.cookie = `userRole=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
         }
-      } catch (error) {
-        console.error("Signup Redirect Error:", error);
-        setErrorMessage("Failed to complete Google signup.");
-      } finally {
-        setLoading(false);
+
+        // 3. HARD REDIRECT: This forces the middleware to re-evaluate
+        setTimeout(() => {
+          window.location.href = `/profile?setup=true&role=${role}`;
+        }, 500); // Give it a half-second to settle
       }
-    };
-    checkRedirect();
-  }, [router, role]);
+    } catch (error) {
+      console.error(error);
+      setLoading(false);
+    }
+  };
+  checkRedirect();
+}, [role]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -107,6 +108,17 @@ export default function Signup() {
   const labelClass = "block text-sm font-semibold text-gray-700 mb-1.5";
   const inputClass = "w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-600 focus:border-transparent outline-none transition-all bg-white text-gray-900 placeholder-gray-400";
 
+  // At the very start of your return block:
+if (loading) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="text-center">
+        <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mx-auto mb-4" />
+        <p className="text-gray-600 font-medium">Verifying your account...</p>
+      </div>
+    </div>
+  );
+}
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <main className="max-w-2xl mx-auto mt-8 px-4 sm:px-6">

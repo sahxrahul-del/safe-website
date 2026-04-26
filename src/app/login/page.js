@@ -40,8 +40,9 @@ export default function Login() {
         // 🚨 CRITICAL: Set cookies FIRST
         if (userDocSnap.exists()) {
           const userData = userDocSnap.data();
-          document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax;`;
-          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax;`;
+          // This tells the browser: "Save this immediately and make it available for the next request"
+             document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax; Secure`;
+             document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
 
           // Give the browser a tiny millisecond to register the cookie
           setTimeout(() => {
