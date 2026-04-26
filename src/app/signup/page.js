@@ -1,17 +1,12 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowLeft, AlertCircle, CheckCircle, Eye, EyeOff, Loader2, HeartPulse } from 'lucide-react';
 import { auth, googleProvider } from '../../lib/firebase';
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithRedirect, 
-  getRedirectResult,
-  sendEmailVerification 
-} from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithPopup, sendEmailVerification } from 'firebase/auth';
 
 export default function Signup() {
   const router = useRouter();
@@ -29,35 +24,29 @@ export default function Signup() {
     licenseNumber: '', specialty: ''
   });
 
-  // Catch Google Redirect
-  useEffect(() => {
-    const handleRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result && result.user) {
-          setLoading(true);
-          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
-          document.cookie = `userRole=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
-          window.location.href = `/profile?setup=true&role=${role}`;
-        }
-      } catch (error) {
-        setErrorMessage(error.message);
-      }
-    };
-    handleRedirect();
-  }, [role]);
-
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setErrorMessage('');
   };
 
+  // ==========================================
+  // GOOGLE SIGNUP (POPUP METHOD)
+  // ==========================================
   const handleGoogleLogin = async () => {
     setErrorMessage('');
+    setLoading(true);
     try {
-      await signInWithRedirect(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      
+      if (result && result.user) {
+        document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+        document.cookie = `userRole=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
+        window.location.href = `/profile?setup=true&role=${role}`;
+      }
     } catch (error) {
+      console.error("Google Signup Error:", error);
       setErrorMessage(error.message);
+      setLoading(false);
     }
   };
 
@@ -74,9 +63,15 @@ export default function Signup() {
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
-      document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
       
+      // 🚨 REMOVED: Do not set cookies here for Email/Password!
+      
+      // 1. Send the email
       await sendEmailVerification(userCredential.user);
+      
+      // 2. 🚨 KICK THEM OUT: Force them to log in properly later
+      await auth.signOut();
+      
       setShowVerification(true);
     } catch (error) {
        setErrorMessage(error.message);
@@ -93,7 +88,7 @@ export default function Signup() {
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mx-auto mb-4" />
-          <p className="text-gray-600 font-medium">Verifying your account...</p>
+          <p className="text-gray-600 font-medium">Processing...</p>
         </div>
       </div>
     );

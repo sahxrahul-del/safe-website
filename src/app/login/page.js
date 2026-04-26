@@ -1,16 +1,12 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react';
 import { auth, db, googleProvider } from '../../lib/firebase';
-import { 
-  signInWithEmailAndPassword, 
-  signInWithRedirect, 
-  getRedirectResult 
-} from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithPopup, sendEmailVerification } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function Login() {
@@ -23,58 +19,68 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
 
-  // Catch Google Redirect Results
-  useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          setLoading(true);
-          const userDocRef = doc(db, "users", result.user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-
-          if (userDocSnap.exists()) {
-            const userData = userDocSnap.data();
-            document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax; Secure`;
-            document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
-
-            // Hard redirect forces middleware to evaluate new cookies
-            window.location.href = userData.role === 'admin' ? '/admin' : `/dashboard/${userData.role === 'nurse' ? 'nurse' : 'patient'}`;
-          } else {
-            document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
-            window.location.href = `/profile?setup=true&role=${roleParam || 'patient'}`;
-          }
-        }
-      } catch (error) {
-        console.error("Redirect Error:", error);
-      }
-    };
-    checkRedirect();
-  }, [roleParam]);
-
+  // ==========================================
+  // GOOGLE LOGIN (POPUP METHOD)
+  // ==========================================
   const handleGoogleLogin = async () => {
     setErrorMessage('');
+    setLoading(true);
     try {
-      await signInWithRedirect(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      
+      if (result && result.user) {
+        const userDocRef = doc(db, "users", result.user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          // Set Strict Cookies
+          document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax; Secure`;
+          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+          
+          // Hard Redirect
+          window.location.href = userData.role === 'admin' ? '/admin' : `/dashboard/${userData.role === 'nurse' ? 'nurse' : 'patient'}`;
+        } else {
+          document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
+          window.location.href = `/profile?setup=true&role=${roleParam || 'patient'}`;
+        }
+      }
     } catch (error) {
+      console.error("Google Login Error:", error);
       setErrorMessage(error.message);
+      setLoading(false);
     }
   };
 
+  // ==========================================
+  // EMAIL LOGIN
+  // ==========================================
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true); setErrorMessage('');
+    setLoading(true); setErrorMessage(''); setResendMessage(''); setNeedsVerification(false);
 
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
+      
+      // 🚨 THE Email BOUNCER 🚨
+      if (!result.user.emailVerified) {
+        await auth.signOut(); // Kick them back out
+        setErrorMessage("Please verify your email address. Check your inbox for the link.");
+        setNeedsVerification(true); // <-- Trigger the Resend UI
+        setLoading(false);
+        return; // Stop the login process right here
+      }
+      
+      // If they ARE verified, continue as normal...
       const userDocSnap = await getDoc(doc(db, "users", result.user.uid));
 
       if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
         document.cookie = `userRole=${userData.role}; path=/; max-age=604800; SameSite=Lax; Secure`;
         document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
-        
         window.location.href = userData.role === 'admin' ? '/admin' : `/dashboard/${userData.role === 'nurse' ? 'nurse' : 'patient'}`;
       } else {
         document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
@@ -82,6 +88,29 @@ export default function Login() {
       }
     } catch (error) {
       setErrorMessage("Invalid credentials. Please check your email and password.");
+      setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setLoading(true);
+    setErrorMessage('');
+    setResendMessage('');
+
+    try {
+      // 1. Secretly log them in using the credentials already in the form
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      
+      // 2. Send the new link
+      await sendEmailVerification(result.user);
+      
+      // 3. Immediately log them back out
+      await auth.signOut();
+      
+      setResendMessage("A new verification link has been sent to your email!");
+      setNeedsVerification(false); // Hide the button after sending
+    } catch (error) {
+      setErrorMessage("Failed to resend the email. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -113,9 +142,30 @@ export default function Login() {
             </div>
 
             {errorMessage && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-md flex items-start">
-                <AlertCircle className="w-5 h-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-red-700 font-medium">{errorMessage}</p>
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-md flex flex-col items-start">
+                <div className="flex items-center">
+                  <AlertCircle className="w-5 h-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-red-700 font-medium">{errorMessage}</p>
+                </div>
+                
+                {/* THE RESEND BUTTON */}
+                {needsVerification && (
+                  <button 
+                    onClick={handleResendVerification}
+                    disabled={loading}
+                    className="mt-3 ml-8 text-sm font-bold text-red-700 underline hover:text-red-900 transition"
+                  >
+                    {loading ? "Sending..." : "Resend Verification Email"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* SUCCESS MESSAGE AFTER RESENDING */}
+            {resendMessage && (
+              <div className="bg-emerald-50 border-l-4 border-emerald-500 p-4 rounded-r-md flex items-start">
+                <CheckCircle className="w-5 h-5 text-emerald-600 mr-3 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-emerald-700 font-medium">{resendMessage}</p>
               </div>
             )}
 

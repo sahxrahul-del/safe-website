@@ -50,35 +50,46 @@ export default function Navbar() {
             const q = query(collection(db, "care_requests"), where("targetNurseId", "==", currentUser.uid), where("status", "==", "direct_request"));
             onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
           }
+          }
+        } else {
+          setUser(null);
+          setUserData(null);
+          setAvatarUrl(null);
+          setNotifications([]);
         }
-      } else {
-        setUser(null);
-        setUserData(null);
-        setAvatarUrl(null);
-        setNotifications([]);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+      });
+      return () => unsubscribe();
+    }, []);
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    router.push('/');
-    setActiveDropdown(null);
-    setIsMobileOpen(false);
+    const handleLogout = async () => {
+    try {
+      // 1. Log out of Firebase
+      await signOut(auth);
+
+      // 2. 🚨 DESTROY THE COOKIES 🚨
+      // Setting the expiration date to 1970 forces the browser to delete them instantly
+      document.cookie = "isAuthenticated=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; Secure; SameSite=Lax";
+      document.cookie = "userRole=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; Secure; SameSite=Lax";
+
+      // 3. Hard redirect back to the home page
+      window.location.href = '/';
+      
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
   };
 
-  const toggleDropdown = (menu) => {
-    setActiveDropdown(activeDropdown === menu ? null : menu);
-  };
+    const toggleDropdown = (menu) => {
+      setActiveDropdown(activeDropdown === menu ? null : menu);
+    };
 
-  // Determine Logo Link based on role
-  const logoLink = !user ? '/' : (userData?.role?.toLowerCase() === 'patient' || userData?.role?.toLowerCase() === 'family' ? '/dashboard/patient' : '/dashboard/nurse');
+    // Determine Logo Link based on role
+    const logoLink = !user ? '/' : (userData?.role?.toLowerCase() === 'patient' || userData?.role?.toLowerCase() === 'family' ? '/dashboard/patient' : '/dashboard/nurse');
 
-  return (
-    // REMOVED: max-w limits. ADDED: w-full for edge-to-edge layout.
-    <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 w-full">
-      <div className="w-full px-4 md:px-8">
+    return (
+      // REMOVED: max-w limits. ADDED: w-full for edge-to-edge layout.
+      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 w-full">
+        <div className="w-full px-4 md:px-8">
         <div className="flex justify-between items-center h-20">
           
           {/* LEFT: BRAND LOGO */}
@@ -198,7 +209,7 @@ export default function Navbar() {
                       <Link href="/profile" onClick={() => setActiveDropdown(null)} className="flex items-center px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition">
                         <UserCircle className="w-4 h-4 mr-2 text-gray-400" /> Edit Profile
                       </Link>
-                      <button onClick={handleLogout} className="w-full flex items-center px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition text-left">
+                        <button onClick={handleLogout} className="w-full flex items-center px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition text-left">
                         <LogOut className="w-4 h-4 mr-2" /> Sign Out
                       </button>
                     </div>
