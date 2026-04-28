@@ -113,7 +113,7 @@ export default function Navbar() {
                   {activeDropdown === 'patients' && (
                     <div className="absolute right-0 top-full mt-4 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2">
                       <Link href="/login" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50">Patient Login</Link>
-                      <Link href="/signup?role=patient" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">Sign Up as Patient</Link>
+                      <Link href="/signup" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">Sign Up as Patient</Link>
                     </div>
                   )}
                 </div>
@@ -126,7 +126,7 @@ export default function Navbar() {
                   {activeDropdown === 'nurses' && (
                     <div className="absolute right-0 top-full mt-4 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2">
                       <Link href="/login" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50">Provider Login</Link>
-                      <Link href="/signup?role=nurse" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">Apply to be a Nurse</Link>
+                      <Link href="/signup" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">Apply to be a Nurse</Link>
                     </div>
                   )}
                 </div>
@@ -238,11 +238,11 @@ export default function Navbar() {
               <>
                 <p className="px-4 py-2 text-xs font-bold text-gray-400 uppercase tracking-widest mt-4">For Patients</p>
                 <Link href="/login" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-gray-900 hover:bg-gray-50 rounded-xl">Patient Login</Link>
-                <Link href="/signup?role=patient" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-emerald-700 bg-emerald-50 rounded-xl">Sign Up as Patient</Link>
+                <Link href="/signup" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-emerald-700 bg-emerald-50 rounded-xl">Sign Up as Patient</Link>
                 
                 <p className="px-4 py-2 text-xs font-bold text-gray-400 uppercase tracking-widest mt-6">For Nurses</p>
                 <Link href="/login" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-gray-900 hover:bg-gray-50 rounded-xl">Provider Login</Link>
-                <Link href="/signup?role=nurse" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-emerald-700 bg-emerald-50 rounded-xl">Apply to be a Nurse</Link>
+                <Link href="/signup" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-emerald-700 bg-emerald-50 rounded-xl">Apply to be a Nurse</Link>
               </>
             ) : (
               <>

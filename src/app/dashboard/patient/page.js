@@ -10,7 +10,7 @@ import {
 import { 
   LayoutDashboard, UserCircle, Plus, Search, Bell, 
   MapPin, Loader2, HeartPulse, FileText, ChevronRight, 
-  Activity, Star, ShieldCheck, Briefcase, MessageSquare, CheckCircle 
+  Activity, Star, ShieldCheck, Briefcase, MessageSquare, CheckCircle, AlertTriangle 
 } from 'lucide-react';
 
 export default function PatientSaaSDashboard() {
@@ -40,7 +40,6 @@ export default function PatientSaaSDashboard() {
   // ==========================================
   // CUSTOM SORTING FUNCTION FOR CASES
   // ==========================================
-  // Puts 'matched' (active) first, 'searching' second, and 'completed' last.
   const sortCases = (casesArray) => {
     const statusWeight = {
       'matched': 1,
@@ -49,11 +48,9 @@ export default function PatientSaaSDashboard() {
     };
 
     return [...casesArray].sort((a, b) => {
-      // First sort by status weight
       const weightDiff = (statusWeight[a.status] || 99) - (statusWeight[b.status] || 99);
       if (weightDiff !== 0) return weightDiff;
       
-      // If same status, sort by newest first (assuming createdAt exists)
       const timeA = a.createdAt?.toMillis() || 0;
       const timeB = b.createdAt?.toMillis() || 0;
       return timeB - timeA;
@@ -77,24 +74,16 @@ export default function PatientSaaSDashboard() {
       if (userDocSnap.exists()) {
         const data = userDocSnap.data();
         
-        // Security check
         const safeRole = data.role?.toLowerCase() || '';
-        
-        // Admin Redirect
-        if (safeRole === 'admin') {
-          router.push('/admin');
-          return;
-        }
 
-        // Provider Redirect
-        if (safeRole !== 'patient' && safeRole !== 'family') {
-          router.push('/dashboard/nurse');
-          return;
-        }
+        document.cookie = `userRole=${safeRole}; path=/; max-age=604800; SameSite=Lax; Secure`;
+
+        if (safeRole === 'admin') { router.push('/admin'); return; }
+        if (safeRole !== 'patient' && safeRole !== 'family') { router.push('/dashboard/nurse'); return; }
         
         setUserData(data);
+        setPageLoading(false); 
 
-        // 1. Listen to Care Requests (Strictly Patient's own)
         const reqQuery = query(
           collection(db, "care_requests"), 
           where("patientId", "==", currentUser.uid)
@@ -102,30 +91,20 @@ export default function PatientSaaSDashboard() {
         
         const unsubReqs = onSnapshot(reqQuery, (snapshot) => {
           const myOnlyReqs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          // Apply our new custom sorter immediately!
           setMyRequests(sortCases(myOnlyReqs)); 
         });
 
-        // 2 & 3. Fetch Nurses & Strict District Filtering
         let realNurses = [];
         let fakeNurses = [];
-        
-        // The patient's district, formatted for safe comparison
         const patientDistrict = (data.district || '').toLowerCase();
 
         const updateProviderList = () => {
-          // Combine both arrays
           const allProviders = [...realNurses, ...fakeNurses];
-          
-          // 🚨 STRICT DISTRICT FILTERING 🚨
           const localProviders = allProviders.filter(provider => {
              const providerDistrict = (provider.district || '').toLowerCase();
-             // Only return true if both exist and match exactly
              return patientDistrict !== '' && providerDistrict !== '' && patientDistrict === providerDistrict;
           });
-
           setAvailableProviders(localProviders);
-          setPageLoading(false);
         };
 
         const unsubUsers = onSnapshot(query(collection(db, "users")), (snapshot) => {
@@ -146,19 +125,16 @@ export default function PatientSaaSDashboard() {
         };
 
       } else {
-        router.push('/setup-profile');
+        router.push('/profile?setup=true'); 
       }
     });
 
     return () => unsubscribeAuth();
   }, [router]);
 
-
   // ==========================================
   // 2. LIVE DATABASE ACTIONS (Chat & Reviews)
   // ==========================================
-
-  // SUBMIT REVIEW FUNCTION
   const handleReviewSubmit = async (e) => {
     e.preventDefault();
     setSubmittingReview(true);
@@ -200,7 +176,6 @@ export default function PatientSaaSDashboard() {
     }
   };
 
-  // REAL-TIME CHAT LISTENER
   useEffect(() => {
     if (!activeChatId) return;
     const q = query(collection(db, `care_requests/${activeChatId}/messages`));
@@ -212,7 +187,6 @@ export default function PatientSaaSDashboard() {
     return () => unsubChat();
   }, [activeChatId]);
 
-  // SEND MESSAGE FUNCTION
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !activeChatId) return;
@@ -234,9 +208,28 @@ export default function PatientSaaSDashboard() {
   // ==========================================
   if (pageLoading || !userData) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4f7f6]">
-        <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mb-4" />
-        <p className="text-gray-500 font-bold">Securely loading Patient Dashboard...</p>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a271f] overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-600/20 rounded-full blur-[100px]"></div>
+        <div className="relative z-10 flex flex-col items-center animate-in fade-in duration-700">
+          <div className="relative mb-6">
+            <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-20"></div>
+            <div className="bg-emerald-900/50 p-4 rounded-full border border-emerald-700/50 backdrop-blur-sm relative z-10">
+              <HeartPulse className="w-12 h-12 text-emerald-400" strokeWidth={1.5} />
+            </div>
+          </div>
+          <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
+            Safe Home<span className="text-emerald-500">.</span>
+          </h1>
+          <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
+            Securely Loading Dashboard...
+          </p>
+          <div className="w-48 h-1 bg-emerald-950 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 rounded-full w-1/2 animate-[shimmer_1.5s_infinite_ease-in-out] origin-left"></div>
+          </div>
+        </div>
+        <style jsx>{`
+          @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
+        `}</style>
       </div>
     );
   }
@@ -249,87 +242,112 @@ export default function PatientSaaSDashboard() {
   const matchedCount = myRequests.filter(r => r.status === 'matched').length;
   const completedCount = myRequests.filter(r => r.status === 'completed').length;
 
-  // ==========================================
-  // RENDER: DASHBOARD TAB
-  // ==========================================
-  const renderDashboard = () => (
-    <div className="animate-in fade-in duration-300 max-w-5xl space-y-8">
-      
-      {/* KPI STATS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
-          <div className="w-14 h-14 rounded-xl bg-blue-50 flex items-center justify-center"><Activity className="w-6 h-6 text-blue-600" /></div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Searching Cases</p>
-            <p className="text-2xl font-black text-gray-900">{activeCount}</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
-          <div className="w-14 h-14 rounded-xl bg-emerald-50 flex items-center justify-center"><HeartPulse className="w-6 h-6 text-emerald-600" /></div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Active Care</p>
-            <p className="text-2xl font-black text-gray-900">{matchedCount}</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
-          <div className="w-14 h-14 rounded-xl bg-purple-50 flex items-center justify-center"><CheckCircle className="w-6 h-6 text-purple-600" /></div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Completed</p>
-            <p className="text-2xl font-black text-gray-900">{completedCount}</p>
-          </div>
-        </div>
-      </div>
+  const renderDashboard = () => {
+    const isMissingLocation = !userData.province || !userData.district || !userData.address;
+    const isMissingEmergency = !userData.emergencyName || !userData.emergencyPhone;
+    const isMissingPhone = !userData.phone;
+    
+    const needsProfileUpdate = isMissingLocation || isMissingEmergency || isMissingPhone;
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-50 flex justify-between items-center bg-[#fdfcf9]">
-          <h3 className="font-bold text-gray-900">Recent Care Requests</h3>
-          <button onClick={() => setActiveTab('my-cases')} className="text-xs font-bold text-emerald-600 hover:text-emerald-700">View All</button>
-        </div>
+    return (
+      <div className="animate-in fade-in duration-300 max-w-5xl space-y-8">
         
-        <div className="p-6">
-          {myRequests.length === 0 ? (
-            <div className="py-12 text-center">
-              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4"><FileText className="w-6 h-6 text-gray-300" /></div>
-              <h3 className="text-base font-black text-gray-900 mb-1">No requests yet</h3>
-              <p className="text-sm text-gray-500 mb-4">You haven't posted any care needs.</p>
+        {needsProfileUpdate && (
+          <div className="bg-amber-50 border-2 border-amber-200 p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-5 shadow-sm">
+            <div className="bg-amber-100 p-3 rounded-full shrink-0">
+              <AlertTriangle className="w-8 h-8 text-amber-600"/>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {myRequests.slice(0, 5).map((req) => (
-                <div key={req.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-xl border border-gray-100 hover:border-emerald-200 hover:shadow-md transition bg-white">
-                  <div className="flex gap-4 items-center mb-4 sm:mb-0">
-                    <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
-                      <HeartPulse className="w-5 h-5 text-emerald-600" />
+            <div className="flex-1">
+                <h3 className="text-amber-900 font-black text-xl mb-1">Action Required: Complete Your Profile</h3>
+                <p className="text-amber-800 text-sm font-medium mb-2">
+                  To ensure patient safety and connect with local providers, we need a few more details:
+                </p>
+                <ul className="text-amber-700 text-sm font-bold list-disc list-inside ml-4 space-y-1">
+                  {isMissingPhone && <li>Add your Mobile Number</li>}
+                  {isMissingLocation && <li>Add your exact Street Address and District</li>}
+                  {isMissingEmergency && <li>Add an Emergency Contact</li>}
+                </ul>
+            </div>
+            <button 
+              onClick={() => router.push('/profile?setup=true')} 
+              className="w-full sm:w-auto mt-4 sm:mt-0 shrink-0 px-6 py-3 bg-amber-600 text-white text-sm font-bold rounded-xl hover:bg-amber-700 shadow-md transition transform hover:-translate-y-0.5"
+            >
+              Complete Profile Now
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
+            <div className="w-14 h-14 rounded-xl bg-blue-50 flex items-center justify-center"><Activity className="w-6 h-6 text-blue-600" /></div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Searching Cases</p>
+              <p className="text-2xl font-black text-gray-900">{activeCount}</p>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
+            <div className="w-14 h-14 rounded-xl bg-emerald-50 flex items-center justify-center"><HeartPulse className="w-6 h-6 text-emerald-600" /></div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Active Care</p>
+              <p className="text-2xl font-black text-gray-900">{matchedCount}</p>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
+            <div className="w-14 h-14 rounded-xl bg-purple-50 flex items-center justify-center"><CheckCircle className="w-6 h-6 text-purple-600" /></div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Completed</p>
+              <p className="text-2xl font-black text-gray-900">{completedCount}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-50 flex justify-between items-center bg-[#fdfcf9]">
+            <h3 className="font-bold text-gray-900">Recent Care Requests</h3>
+            <button onClick={() => setActiveTab('my-cases')} className="text-xs font-bold text-emerald-600 hover:text-emerald-700">View All</button>
+          </div>
+          
+          <div className="p-6">
+            {myRequests.length === 0 ? (
+              <div className="py-12 text-center">
+                <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4"><FileText className="w-6 h-6 text-gray-300" /></div>
+                <h3 className="text-base font-black text-gray-900 mb-1">No requests yet</h3>
+                <p className="text-sm text-gray-500 mb-4">You haven't posted any care needs.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {myRequests.slice(0, 5).map((req) => (
+                  <div key={req.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-xl border border-gray-100 hover:border-emerald-200 hover:shadow-md transition bg-white">
+                    <div className="flex gap-4 items-center mb-4 sm:mb-0">
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
+                        <HeartPulse className="w-5 h-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-gray-900 leading-tight mb-1">{req.roleNeeded}</h4>
+                        <p className="text-xs font-bold text-gray-400 flex items-center">
+                          <MapPin className="w-3 h-3 mr-1" /> {req.location} • {req.careType}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-black text-gray-900 leading-tight mb-1">{req.roleNeeded}</h4>
-                      <p className="text-xs font-bold text-gray-400 flex items-center">
-                        <MapPin className="w-3 h-3 mr-1" /> {req.location} • {req.careType}
-                      </p>
+                    <div className="flex items-center justify-between sm:justify-end sm:gap-8 border-t sm:border-0 border-gray-50 pt-4 sm:pt-0">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === 'searching' ? 'bg-amber-50 text-amber-700' : (req.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700')}`}>
+                        {req.status === 'searching' ? 'Finding Matches' : req.status === 'matched' ? 'Active Care' : req.status}
+                      </span>
+                      <button onClick={() => setActiveTab('my-cases')} className="w-8 h-8 rounded-full bg-gray-50 group-hover:bg-emerald-50 flex items-center justify-center transition shrink-0">
+                        <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between sm:justify-end sm:gap-8 border-t sm:border-0 border-gray-50 pt-4 sm:pt-0">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === 'searching' ? 'bg-amber-50 text-amber-700' : (req.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700')}`}>
-                      {req.status === 'searching' ? 'Finding Matches' : req.status === 'matched' ? 'Active Care' : req.status}
-                    </span>
-                    <button onClick={() => setActiveTab('my-cases')} className="w-8 h-8 rounded-full bg-gray-50 group-hover:bg-emerald-50 flex items-center justify-center transition shrink-0">
-                      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-
-  // ==========================================
-  // RENDER: FIND PROVIDERS TAB
-  // ==========================================
+    );
+  };
+  
   const renderFindProviders = () => {
-    // Only feature nurses if they are actually available in this district
     const localFeaturedNurses = availableProviders.filter(nurse => nurse.isFeatured || nurse.rating >= 4.8);
 
     return (
@@ -343,7 +361,6 @@ export default function PatientSaaSDashboard() {
           </p>
         </div>
 
-        {/* DYNAMIC FEATURED NURSES */}
         {localFeaturedNurses.length > 0 && (
           <div className="mb-10">
             <h3 className="font-bold text-gray-900 mb-4 flex items-center">
@@ -362,13 +379,11 @@ export default function PatientSaaSDashboard() {
                   </div>
                   <h4 className="text-lg font-black text-gray-900">{featuredNurse.name || featuredNurse.full_name}</h4>
                   <p className="text-xs text-gray-500 font-medium mb-3">{featuredNurse.specialty || featuredNurse.role}</p>
-                  
                   <div className="flex items-center gap-1.5 mb-3">
                     <Star className={`w-4 h-4 ${featuredNurse.rating ? 'fill-amber-400 text-amber-400' : 'fill-gray-200 text-gray-200'}`} />
                     <span className="font-bold text-gray-900 text-sm">{featuredNurse.rating ? featuredNurse.rating : 'New'}</span>
                     <span className="text-gray-400 text-xs font-medium">({featuredNurse.reviewCount || 0} reviews)</span>
                   </div>
-
                   <div className="flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 w-fit px-2 py-1 rounded-md">
                     <ShieldCheck className="w-4 h-4 mr-1" /> Verified Professional
                   </div>
@@ -378,7 +393,6 @@ export default function PatientSaaSDashboard() {
           </div>
         )}
 
-        {/* ALL OTHER PROVIDERS */}
         {availableProviders.length === 0 ? (
           <div className="py-20 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100 shadow-sm">
              <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -399,13 +413,11 @@ export default function PatientSaaSDashboard() {
                         {nurse.isVerified && <ShieldCheck className="w-5 h-5 text-emerald-500 ml-2" title="Verified"/>}
                       </h4>
                       <p className="text-emerald-700 font-bold text-xs uppercase tracking-wider mb-2">{nurse.specialty || nurse.role} · {nurse.experience || '3'} yrs exp.</p>
-
                       <div className="flex items-center gap-1.5 mb-3">
                         <Star className={`w-4 h-4 ${nurse.rating ? 'fill-amber-400 text-amber-400' : 'fill-gray-200 text-gray-200'}`} />
                         <span className="font-bold text-gray-900 text-sm">{nurse.rating ? nurse.rating : 'New'}</span>
                         <span className="text-gray-400 text-xs font-medium">({nurse.reviewCount || 0} reviews)</span>
                       </div>
-
                     </div>
                   </div>
                   <div className="text-left sm:text-right">
@@ -429,9 +441,6 @@ export default function PatientSaaSDashboard() {
     );
   }
 
-  // ==========================================
-  // RENDER: MY CASES TAB
-  // ==========================================
   const renderMyCases = () => (
     <div className="animate-in fade-in duration-300 max-w-4xl">
       <div className="flex justify-between items-end mb-8">
@@ -453,8 +462,6 @@ export default function PatientSaaSDashboard() {
               </span>
               <h3 className="text-xl font-black text-gray-900">{job.roleNeeded}</h3>
               <p className="text-gray-500 text-sm mt-1 flex items-center"><MapPin className="w-4 h-4 mr-1"/> {job.location} • {job.careType}</p>
-              
-              {/* Show Nurse if Matched */}
               {job.nurseName && (
                 <div className="mt-4 flex items-center bg-gray-50 p-3 rounded-lg w-fit">
                   <div className="w-8 h-8 rounded-full bg-emerald-200 overflow-hidden flex items-center justify-center mr-3">
@@ -469,14 +476,11 @@ export default function PatientSaaSDashboard() {
             </div>
             
             <div className="shrink-0 flex flex-col gap-2">
-              {/* Only show Message button if shift is active */}
               {job.status === 'matched' && (
                 <button onClick={() => setActiveTab('messages')} className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold text-sm hover:border-gray-300 transition flex justify-center items-center">
                    <MessageSquare className="w-4 h-4 mr-2"/> Message
                 </button>
               )}
-
-              {/* LEAVE A REVIEW BUTTON (Only shows if job is completed AND not yet reviewed) */}
               {job.status === 'completed' && !job.isReviewed && (
                 <button 
                   onClick={() => setReviewModal({ isOpen: true, job: job, rating: 5, reviewText: '' })} 
@@ -486,8 +490,6 @@ export default function PatientSaaSDashboard() {
                   Rate & Review
                 </button>
               )}
-              
-              {/* ALREADY REVIEWED BADGE */}
               {job.isReviewed && (
                  <p className="text-sm font-bold text-gray-400 flex items-center px-2 py-1"><CheckCircle className="w-4 h-4 mr-1.5"/> Reviewed</p>
               )}
@@ -498,15 +500,11 @@ export default function PatientSaaSDashboard() {
     </div>
   );
 
-  // ==========================================
-  // RENDER: MESSAGES TAB 
-  // ==========================================
   const renderMessages = () => {
     const activeChats = myRequests.filter(r => r.status === 'matched');
 
     return (
       <div className="animate-in fade-in duration-300 h-[75vh] flex bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden max-w-5xl">
-        
         <div className="w-1/3 border-r border-gray-100 bg-gray-50/50 flex flex-col">
           <div className="p-5 border-b border-gray-100 bg-white">
             <h3 className="font-black text-gray-900">Active Care Teams</h3>
@@ -573,13 +571,9 @@ export default function PatientSaaSDashboard() {
     );
   };
 
-  // ==========================================
-  // MASTER RENDER
-  // ==========================================
   return (
     <div className="flex h-screen bg-[#f4f7f6] font-sans overflow-hidden">
       
-      {/* LEFT SIDEBAR */}
       <aside className="hidden lg:flex w-64 bg-white border-r border-gray-100 flex-col h-full shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
         <div className="p-6 border-b border-gray-50">
           <div className="flex items-center gap-4 mb-4">
@@ -632,7 +626,6 @@ export default function PatientSaaSDashboard() {
         </div>
       </aside>
 
-      {/* DYNAMIC TAB RENDERING */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="bg-white border-b border-gray-100 p-6 flex justify-between items-center shrink-0 z-10">
            <div>
@@ -655,7 +648,6 @@ export default function PatientSaaSDashboard() {
         </main>
       </div>
       
-      {/* --- RATING & REVIEW MODAL --- */}
       {reviewModal.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
@@ -663,8 +655,6 @@ export default function PatientSaaSDashboard() {
             <p className="text-gray-500 text-sm text-center mb-6">How was your care with {reviewModal.job.nurseName}?</p>
             
             <form onSubmit={handleReviewSubmit} className="space-y-6">
-              
-              {/* Star Selector */}
               <div className="flex justify-center gap-2">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <button 
@@ -678,7 +668,6 @@ export default function PatientSaaSDashboard() {
                 ))}
               </div>
 
-              {/* Text Review */}
               <textarea 
                 required 
                 value={reviewModal.reviewText} 

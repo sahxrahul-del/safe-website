@@ -12,7 +12,7 @@ import {
   MapPin, Loader2, CheckCircle, Clock, FileText, ChevronRight, 
   Activity, Edit3, Inbox, AlertCircle,
   MessageSquare, Calendar, ToggleLeft, ToggleRight, XCircle, ShieldCheck, Star,
-  ExternalLink
+  ExternalLink, HeartPulse
 } from 'lucide-react';
 
 export default function NurseSaaSDashboard() {
@@ -95,6 +95,8 @@ export default function NurseSaaSDashboard() {
         const data = userDocSnap.data();
         
         const safeRole = data.role?.toLowerCase() || '';
+
+        document.cookie = `userRole=${safeRole}; path=/; max-age=604800; SameSite=Lax; Secure`;
         
         if (safeRole === 'admin') {
           router.push('/admin');
@@ -118,7 +120,11 @@ export default function NurseSaaSDashboard() {
           setSchedule(data.availabilitySchedule);
         }
 
-        // START LIVE LISTENER
+        // 🚀 THE FIX: UNBLOCK THE UI IMMEDIATELY! 🚀
+        // We know who the nurse is, so drop the loading screen right now.
+        setPageLoading(false);
+
+        // START LIVE LISTENER (Loads silently in the background)
         const q = query(collection(db, "care_requests"));
         const unsubscribeJobs = onSnapshot(q, (snapshot) => {
           const allRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -145,13 +151,13 @@ export default function NurseSaaSDashboard() {
           setMyJobs(accepted);
           setDirectInvites(invites); 
           
-          setPageLoading(false);
+          // Removed setPageLoading(false) from here so it doesn't bottleneck!
         });
 
         return () => unsubscribeJobs();
 
       } else {
-        router.push('/setup-profile');
+        router.push('/profile?setup=true'); // Ensure this routes to your actual profile setup!
       }
     });
 
@@ -257,13 +263,46 @@ export default function NurseSaaSDashboard() {
   };
 
   // ==========================================
-  // 3. UI CALCULATIONS
+  // 3. UI CALCULATIONS & VARIABLES
   // ==========================================
   if (pageLoading || !userData) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4f7f6]">
-        <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mb-4" />
-        <p className="text-gray-500 font-bold">Securely loading Provider Dashboard...</p>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a271f] overflow-hidden">
+        {/* Background ambient glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-600/20 rounded-full blur-[100px]"></div>
+
+        <div className="relative z-10 flex flex-col items-center animate-in fade-in duration-700">
+          {/* Logo Icon with Pulse Animation */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-20"></div>
+            <div className="bg-emerald-900/50 p-4 rounded-full border border-emerald-700/50 backdrop-blur-sm relative z-10">
+              <HeartPulse className="w-12 h-12 text-emerald-400" strokeWidth={1.5} />
+            </div>
+          </div>
+
+          {/* Brand Name */}
+          <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
+            Safe Home<span className="text-emerald-500">.</span>
+          </h1>
+
+          {/* Tagline */}
+          <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
+            Securely Loading Dashboard...
+          </p>
+
+          {/* Minimalist Loading Bar */}
+          <div className="w-48 h-1 bg-emerald-950 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 rounded-full w-1/2 animate-[shimmer_1.5s_infinite_ease-in-out] origin-left"></div>
+          </div>
+        </div>
+
+        {/* Custom Keyframes for the loading bar */}
+        <style jsx>{`
+          @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(200%); }
+          }
+        `}</style>
       </div>
     );
   }

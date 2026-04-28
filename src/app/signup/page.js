@@ -1,26 +1,33 @@
 "use client";
 
 import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowLeft, AlertCircle, CheckCircle, Eye, EyeOff, Loader2, HeartPulse } from 'lucide-react';
-import { auth, googleProvider } from '../../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithPopup, sendEmailVerification } from 'firebase/auth';
+import { ArrowLeft, AlertCircle, CheckCircle, Eye, EyeOff, MapPin, Loader2, User, HeartPulse, Briefcase } from 'lucide-react';
+import { auth, db, googleProvider } from '../../lib/firebase';
+import { createUserWithEmailAndPassword, sendEmailVerification, signInWithPopup } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { nepalLocations, provinces } from '../../lib/nepalLocations';
 
 export default function Signup() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const role = searchParams.get('role') === 'nurse' ? 'nurse' : 'patient';
 
+  // 🚨 The Master Toggle State (Defaults to patient)
+  const [userType, setUserType] = useState('patient'); 
+  
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [showVerification, setShowVerification] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [popupBlocked, setPopupBlocked] = useState(false);
 
+  const [availableDistricts, setAvailableDistricts] = useState([]);
+
+  // Added Nurse fields to the initial state
   const [formData, setFormData] = useState({
     email: '', password: '', confirmPassword: '',
-    fullName: '', phone: '', location: '',
+    fullName: '', phone: '', province: '', district: '',
     licenseNumber: '', specialty: ''
   });
 
@@ -29,27 +36,53 @@ export default function Signup() {
     setErrorMessage('');
   };
 
+  const handleProvinceChange = (e) => {
+    const newProvince = e.target.value;
+    setFormData({ ...formData, province: newProvince, district: '' });
+    const provinceData = nepalLocations[newProvince] || {};
+    setAvailableDistricts(Object.keys(provinceData));
+  };
+
   // ==========================================
-  // GOOGLE SIGNUP (POPUP METHOD)
+  // GOOGLE SIGNUP
   // ==========================================
   const handleGoogleLogin = async () => {
-    setErrorMessage('');
-    setLoading(true);
+    setErrorMessage(''); setPopupBlocked(false); setLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      
       if (result && result.user) {
+        const userRef = doc(db, 'users', result.user.uid);
+        const docSnap = await getDoc(userRef);
+
+        if (!docSnap.exists()) {
+          await setDoc(userRef, {
+            email: result.user.email,
+            full_name: result.user.displayName,
+            avatar_url: result.user.photoURL,
+            role: userType, // Powered purely by the UI Toggle
+            accountStatus: userType === 'nurse' ? 'pending' : 'approved',
+            isVerified: false,
+            created_at: serverTimestamp()
+          });
+        }
+
         document.cookie = `isAuthenticated=true; path=/; max-age=604800; SameSite=Lax; Secure`;
-        document.cookie = `userRole=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
-        window.location.href = `/profile?setup=true&role=${role}`;
+        document.cookie = `userRole=${userType}; path=/; max-age=604800; SameSite=Lax; Secure`;
+        window.location.href = `/dashboard/${userType === 'nurse' ? 'nurse' : 'patient'}`;
       }
     } catch (error) {
-      console.error("Google Signup Error:", error);
-      setErrorMessage(error.message);
+      if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user') {
+        setPopupBlocked(true);
+      } else {
+        setErrorMessage(error.message);
+      }
       setLoading(false);
     }
   };
 
+  // ==========================================
+  // EMAIL SIGNUP
+  // ==========================================
   const handleSignup = async (e) => {
     e.preventDefault();
     setLoading(true); setErrorMessage('');
@@ -62,16 +95,28 @@ export default function Signup() {
     }
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+      const userCred = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       
-      // 🚨 REMOVED: Do not set cookies here for Email/Password!
-      
-      // 1. Send the email
-      await sendEmailVerification(userCredential.user);
-      
-      // 2. 🚨 KICK THEM OUT: Force them to log in properly later
+      // Write database record instantly with dynamic fields
+      await setDoc(doc(db, 'users', userCred.user.uid), {
+        email: formData.email,
+        full_name: formData.fullName,
+        phone: formData.phone,
+        province: formData.province,
+        district: formData.district,
+        role: userType,
+        
+        // Save these ONLY if they are a nurse
+        licenseNumber: userType === 'nurse' ? formData.licenseNumber : null,
+        specialty: userType === 'nurse' ? formData.specialty : null,
+        
+        accountStatus: userType === 'nurse' ? 'pending' : 'approved',
+        isVerified: false,
+        created_at: serverTimestamp()
+      });
+
+      await sendEmailVerification(userCred.user);
       await auth.signOut();
-      
       setShowVerification(true);
     } catch (error) {
        setErrorMessage(error.message);
@@ -82,17 +127,6 @@ export default function Signup() {
 
   const labelClass = "block text-sm font-semibold text-gray-700 mb-1.5";
   const inputClass = "w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-600 focus:border-transparent outline-none transition-all bg-white text-gray-900 placeholder-gray-400";
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mx-auto mb-4" />
-          <p className="text-gray-600 font-medium">Processing...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -107,27 +141,59 @@ export default function Signup() {
         )}
 
         {showVerification ? (
-          <div className="bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-gray-100 text-center">
+          <div className="bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-gray-100 text-center animate-in zoom-in-95 duration-300">
             <div className="bg-emerald-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-10 h-10 text-emerald-600" />
             </div>
             <h2 className="text-3xl font-extrabold text-gray-900 mb-3">Check your Email</h2>
             <p className="text-gray-500 mb-8 text-lg">We've sent a secure verification link to <br/><span className="font-bold text-gray-900">{formData.email}</span></p>
-            <Link href={`/login?role=${role}`} className="w-full block bg-[#0a271f] text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-900 transition shadow-lg">I have verified my email →</Link>
+            <Link href="/login" className="w-full block bg-[#0a271f] text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-900 transition shadow-lg">I have verified my email →</Link>
           </div>
         ) : (
           <>
             <div className="text-center mb-10">
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-[#0a271f]">Join Safe as a <span className="font-serif italic font-normal text-emerald-600">{role === 'nurse' ? 'Care Provider' : 'Patient'}</span></h1>
-              <p className="text-gray-500 mt-3 text-lg">Create your account to get started</p>
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-[#0a271f]">Join Safe Home</h1>
+              <p className="text-gray-500 mt-3 text-lg">Select your account type to get started</p>
+            </div>
+
+            {/* THE MASTER TOGGLE (WorkXNepal Style) */}
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <button 
+                onClick={() => setUserType('patient')} 
+                className={`relative flex flex-col items-center justify-center p-6 rounded-xl border-2 transition-all duration-200 ${userType === 'patient' ? 'border-emerald-600 bg-emerald-50/50 shadow-md' : 'border-white bg-white shadow-sm hover:border-gray-200'}`}
+              >
+                <div className={`p-3 rounded-full mb-3 ${userType === 'patient' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <User className="w-6 h-6" />
+                </div>
+                <span className={`font-bold ${userType === 'patient' ? 'text-emerald-900' : 'text-gray-500'}`}>Family / Patient</span>
+                {userType === 'patient' && <div className="absolute top-3 right-3 text-emerald-600"><CheckCircle className="w-5 h-5 fill-current" /></div>}
+              </button>
+
+              <button 
+                onClick={() => setUserType('nurse')} 
+                className={`relative flex flex-col items-center justify-center p-6 rounded-xl border-2 transition-all duration-200 ${userType === 'nurse' ? 'border-emerald-600 bg-emerald-50/50 shadow-md' : 'border-white bg-white shadow-sm hover:border-gray-200'}`}
+              >
+                <div className={`p-3 rounded-full mb-3 ${userType === 'nurse' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <HeartPulse className="w-6 h-6" />
+                </div>
+                <span className={`font-bold ${userType === 'nurse' ? 'text-emerald-900' : 'text-gray-500'}`}>Care Provider</span>
+                {userType === 'nurse' && <div className="absolute top-3 right-3 text-emerald-600"><CheckCircle className="w-5 h-5 fill-current" /></div>}
+              </button>
             </div>
 
             <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg border border-gray-100">
-              <button onClick={handleGoogleLogin} className="w-full mb-8 flex items-center justify-center gap-3 border border-gray-300 py-3.5 rounded-xl hover:bg-gray-50 transition font-bold text-gray-700">
+              <button onClick={handleGoogleLogin} className="w-full mb-4 flex items-center justify-center gap-3 border border-gray-300 py-3.5 rounded-xl hover:bg-gray-50 transition font-bold text-gray-700">
                 <Image src="https://www.svgrepo.com/show/475656/google-color.svg" width={20} height={20} alt="Google" className="w-5 h-5" /> Sign up with Google
               </button>
 
-              <div className="relative mb-8">
+              {popupBlocked && (
+                <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex items-start mb-6">
+                  <AlertCircle className="w-5 h-5 text-amber-600 mr-2 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800 font-medium leading-tight">Popup blocked. Please disable your adblocker or use email.</p>
+                </div>
+              )}
+
+              <div className="relative mb-8 mt-4">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
                 <div className="relative flex justify-center text-sm"><span className="px-3 bg-white text-gray-500">Or continue with email</span></div>
               </div>
@@ -139,20 +205,55 @@ export default function Signup() {
               )}
 
               <form onSubmit={handleSignup} className="space-y-6">
-                {role === 'nurse' && (
-                  <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 space-y-4">
-                    <h3 className="font-bold text-emerald-900 flex items-center"><HeartPulse className="w-4 h-4 mr-2"/> Professional Details</h3>
+                
+                {/* 🚨 DYNAMIC FORM FIELDS (Only shows if Nurse is selected) */}
+                {userType === 'nurse' && (
+                  <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 space-y-4 animate-in fade-in slide-in-from-top-4">
+                    <h3 className="font-bold text-emerald-900 flex items-center"><Briefcase className="w-4 h-4 mr-2"/> Professional Details</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label className={labelClass}>License Number *</label><input required name="licenseNumber" onChange={handleChange} type="text" className={inputClass} /></div>
-                        <div><label className={labelClass}>Care Specialty *</label><select required name="specialty" onChange={handleChange} className={inputClass}><option value="">Select Specialty</option><option value="Registered Nurse">Registered Nurse (RN)</option><option value="Caregiver">CNA / Caregiver</option><option value="Other">Other</option></select></div>
+                        <div>
+                            <label className={labelClass}>License Number *</label>
+                            <input required name="licenseNumber" onChange={handleChange} type="text" className={inputClass} placeholder="NMC Number" />
+                        </div>
+                        <div>
+                            <label className={labelClass}>Care Specialty *</label>
+                            <select required name="specialty" onChange={handleChange} className={inputClass}>
+                                <option value="">Select Specialty</option>
+                                <option value="Registered Nurse (RN)">Registered Nurse (RN)</option>
+                                <option value="CNA / Caregiver">CNA / Caregiver</option>
+                                <option value="Elderly Care">Elderly Care</option>
+                                <option value="Post-Op Recovery">Post-Op Recovery</option>
+                            </select>
+                        </div>
                     </div>
                   </div>
                 )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Full Name *</label><input required name="fullName" onChange={handleChange} type="text" className={inputClass} /></div>
-                    <div><label className={labelClass}>Phone *</label><input required name="phone" onChange={handleChange} type="tel" className={inputClass} /></div>
+                    <div><label className={labelClass}>Full Name *</label><input required name="fullName" onChange={handleChange} type="text" className={inputClass} placeholder="Ram Bahadur" /></div>
+                    <div><label className={labelClass}>Phone *</label><input required name="phone" onChange={handleChange} type="tel" className={inputClass} placeholder="9800000000" /></div>
                 </div>
-                <div><label className={labelClass}>City / Location *</label><input required name="location" onChange={handleChange} type="text" className={inputClass} /></div>
+
+                <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+                    <h3 className="font-bold text-gray-800 flex items-center mb-4 text-sm uppercase tracking-wider"><MapPin className="w-4 h-4 mr-2 text-emerald-600"/> Your Location</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className={labelClass}>Province *</label>
+                            <select name="province" value={formData.province} onChange={handleProvinceChange} className={inputClass} required>
+                                <option value="">Select Province</option>
+                                {provinces.map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className={labelClass}>District *</label>
+                            <select name="district" value={formData.district} onChange={handleChange} className={inputClass} required disabled={!formData.province}>
+                                <option value="">Select District</option>
+                                {availableDistricts.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="space-y-4 pt-2">
                     <div><label className={labelClass}>Email Address *</label><input required name="email" onChange={handleChange} type="email" className={inputClass} /></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -162,8 +263,11 @@ export default function Signup() {
                         <div><label className={labelClass}>Confirm Password *</label><input required name="confirmPassword" onChange={handleChange} type="password" className={inputClass} /></div>
                     </div>
                 </div>
-                <button type="submit" disabled={loading} className="w-full bg-[#0a271f] text-white py-4 rounded-xl font-bold hover:bg-emerald-900 transition shadow-lg hover:shadow-xl flex items-center justify-center">{loading ? <Loader2 className="animate-spin mr-2" /> : 'Create Account'}</button>
+                <button type="submit" disabled={loading} className="w-full bg-[#0a271f] text-white py-4 rounded-xl font-bold hover:bg-emerald-900 transition shadow-lg flex justify-center items-center text-lg">{loading ? <Loader2 className="animate-spin mr-2" /> : 'Create Account'}</button>
               </form>
+              <div className="mt-8 text-center">
+                <p className="text-gray-500 text-sm">Already have an account? <Link href="/login" className="text-emerald-700 font-bold hover:underline">Sign In</Link></p>
+              </div>
             </div>
           </>
         )}

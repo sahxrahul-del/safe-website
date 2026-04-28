@@ -11,8 +11,8 @@ import {
   ShieldAlert, Users, Activity, CheckCircle, 
   FileText, Star, Loader2, LayoutDashboard, 
   ShieldCheck, ArrowRight, Eye, X, MapPin, 
-  Phone, Mail, Briefcase, GraduationCap, XCircle, AlertCircle 
-} from 'lucide-react';
+  Phone, Mail, Briefcase, GraduationCap, XCircle, AlertCircle, HeartPulse, UserCircle 
+} from 'lucide-react'; 
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -50,13 +50,14 @@ export default function AdminDashboard() {
         
         // STRICT ADMIN CHECK
         if (data.role !== 'admin') {
-          router.push('/dashboard/patient'); 
+          router.push(`/dashboard/${data.role === 'nurse' ? 'nurse' : 'patient'}`); 
           return;
         }
         
         setAdminAuth(data);
+        setLoading(false);
 
-        // Fetch All Users
+        // Fetch All Users (Background)
         const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
           const allUsers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           
@@ -70,10 +71,9 @@ export default function AdminDashboard() {
           setPatients(registeredPatients);
         });
 
-        // Fetch All Jobs
+        // Fetch All Jobs (Background)
         const unsubJobs = onSnapshot(collection(db, "care_requests"), (snapshot) => {
           setJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-          setLoading(false);
         });
 
         return () => {
@@ -97,7 +97,7 @@ export default function AdminDashboard() {
       await updateDoc(doc(db, "users", nurseId), { 
         isVerified: !currentStatus,
         accountStatus: !currentStatus ? 'approved' : 'pending',
-        rejectionReason: null // Clears any old rejection messages
+        rejectionReason: null 
       });
       if (viewProvider && viewProvider.id === nurseId) {
         setViewProvider({ ...viewProvider, isVerified: !currentStatus });
@@ -119,7 +119,7 @@ export default function AdminDashboard() {
         rejectionReason: rejectModal.reason
       });
       setRejectModal({ isOpen: false, provider: null, reason: '' });
-      setViewProvider(null); // Closes the profile view
+      setViewProvider(null); 
     } catch (error) {
       console.error("Error rejecting:", error);
     } finally {
@@ -144,35 +144,66 @@ export default function AdminDashboard() {
   // ==========================================
   // 3. UI RENDERERS
   // ==========================================
-  if (loading) {
+  if (loading || !adminAuth) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4f7f6]">
-        <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mb-4" />
-        <p className="text-gray-500 font-bold">Verifying Admin Credentials...</p>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a271f] overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-600/20 rounded-full blur-[100px]"></div>
+        <div className="relative z-10 flex flex-col items-center animate-in fade-in duration-700">
+          <div className="relative mb-6">
+            <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-20"></div>
+            <div className="bg-emerald-900/50 p-4 rounded-full border border-emerald-700/50 backdrop-blur-sm relative z-10">
+              <HeartPulse className="w-12 h-12 text-emerald-400" strokeWidth={1.5} />
+            </div>
+          </div>
+          <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
+            Safe Home<span className="text-emerald-500">.</span>
+          </h1>
+          <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
+            Securely Loading Admin Portal...
+          </p>
+          <div className="w-48 h-1 bg-emerald-950 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 rounded-full w-1/2 animate-[shimmer_1.5s_infinite_ease-in-out] origin-left"></div>
+          </div>
+        </div>
+        <style jsx>{`
+          @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
+        `}</style>
       </div>
     );
   }
 
   const pendingCount = nurses.filter(n => !n.isVerified).length;
+  // ENHANCEMENT: Calculate Active vs Completed Jobs for the Dashboard
+  const activeJobsCount = jobs.filter(j => j.status !== 'completed').length;
 
   const renderOverview = () => (
     <div className="animate-in fade-in duration-300 space-y-6 max-w-6xl">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Providers</span> <ShieldCheck className="w-5 h-5"/></div>
-            <div><p className="text-3xl font-black text-gray-900">{nurses.length}</p></div>
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition cursor-pointer" onClick={() => setActiveTab('providers')}>
+            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Providers</span> <ShieldCheck className="w-5 h-5 text-emerald-600"/></div>
+            <div><p className="text-4xl font-black text-gray-900">{nurses.length}</p></div>
           </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Patients</span> <Users className="w-5 h-5"/></div>
-            <div><p className="text-3xl font-black text-gray-900">{patients.length}</p></div>
+          
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition cursor-pointer" onClick={() => setActiveTab('patients')}>
+            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Patients</span> <Users className="w-5 h-5 text-blue-600"/></div>
+            <div><p className="text-4xl font-black text-gray-900">{patients.length}</p></div>
           </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Jobs</span> <Briefcase className="w-5 h-5"/></div>
-            <div><p className="text-3xl font-black text-gray-900">{jobs.length}</p></div>
+          
+          {/* ENHANCED JOB METRICS */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start text-gray-400 mb-2"><span className="text-sm font-bold">Total Jobs</span> <Briefcase className="w-5 h-5 text-purple-600"/></div>
+            <div>
+              <p className="text-4xl font-black text-gray-900 mb-1">{jobs.length}</p>
+              <p className="text-xs font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-md">{activeJobsCount} Active</p>
+            </div>
           </div>
-          <div className="bg-white p-5 rounded-2xl border border-amber-200 bg-amber-50 shadow-sm flex flex-col justify-between cursor-pointer hover:bg-amber-100 transition" onClick={() => setActiveTab('providers')}>
+
+          <div className="bg-white p-6 rounded-2xl border border-amber-200 bg-amber-50 shadow-sm flex flex-col justify-between cursor-pointer hover:bg-amber-100 transition transform hover:-translate-y-1" onClick={() => setActiveTab('providers')}>
             <div className="flex justify-between items-start text-amber-700 mb-4"><span className="text-sm font-bold">Pending Approvals</span> <AlertCircle className="w-5 h-5"/></div>
-            <div><p className="text-3xl font-black text-amber-900">{pendingCount}</p></div>
+            <div>
+              <p className="text-4xl font-black text-amber-900">{pendingCount}</p>
+              {pendingCount > 0 && <p className="text-xs font-bold text-amber-800 mt-2 flex items-center">Action Required <ArrowRight className="w-3 h-3 ml-1"/></p>}
+            </div>
           </div>
       </div>
     </div>
@@ -196,7 +227,7 @@ export default function AdminDashboard() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {nurses.map(nurse => (
-                <tr key={nurse.id} className="hover:bg-gray-50/50 transition">
+                <tr key={nurse.id} className={`transition ${!nurse.isVerified ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-gray-50/50'}`}>
                   <td className="p-5 pl-6">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold overflow-hidden shrink-0 border-2 border-white shadow-sm">
@@ -249,6 +280,7 @@ export default function AdminDashboard() {
                 <th className="p-5">Contact</th>
                 <th className="p-5">Location</th>
                 <th className="p-5">Care Recipient</th>
+                <th className="p-5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -283,7 +315,7 @@ export default function AdminDashboard() {
   return (
     <div className="flex h-screen bg-[#f4f7f6] font-sans overflow-hidden">
       
-      {/* LEFT SIDEBAR (NURSE UI MATCH) */}
+      {/* LEFT SIDEBAR */}
       <aside className="hidden lg:flex w-64 bg-white border-r border-gray-100 flex-col h-full shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
         <div className="p-6 border-b border-gray-50">
           <div className="flex items-center gap-3 mb-2">
@@ -310,8 +342,8 @@ export default function AdminDashboard() {
         </div>
         
         <div className="p-4 border-t border-gray-50 bg-gray-50/50">
-          <button onClick={() => router.push('/dashboard/patient')} className="w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-50 transition shadow-sm">
-            Exit Admin
+          <button onClick={() => router.push('/profile')} className="w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-50 transition shadow-sm mb-3 flex items-center justify-center">
+            <UserCircle className="w-4 h-4 mr-2"/> Admin Profile
           </button>
         </div>
       </aside>
@@ -332,12 +364,12 @@ export default function AdminDashboard() {
         </main>
       </div>
 
+      {/* PROVIDER MODAL */}
       {viewProvider && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm animate-in fade-in" onClick={() => setViewProvider(null)}></div>
             <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95">
                 
-                {/* Modal Header */}
                 <div className="bg-[#fdfcf9] p-6 border-b border-gray-100 flex justify-between items-start shrink-0">
                     <div className="flex items-center gap-4">
                       <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-black text-xl overflow-hidden shrink-0 border-2 border-white shadow-sm">
@@ -351,11 +383,9 @@ export default function AdminDashboard() {
                     <button onClick={() => setViewProvider(null)} className="p-2 bg-gray-100 rounded-full text-gray-400 hover:text-gray-900 hover:bg-gray-200 transition"><X className="w-5 h-5"/></button>
                 </div>
 
-                {/* Modal Body */}
                 <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30 custom-scrollbar">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         
-                        {/* Info Column */}
                         <div className="space-y-6">
                             <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                                 <h4 className="font-bold text-gray-900 mb-4 flex items-center"><MapPin className="w-4 h-4 mr-2 text-gray-400"/> Contact & Location</h4>
@@ -378,10 +408,7 @@ export default function AdminDashboard() {
                             </div>
                         </div>
 
-                        {/* Document & Actions Column */}
                         <div className="space-y-6 flex flex-col">
-                            
-                            {/* Action Buttons */}
                             <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col gap-3">
                                 <button 
                                     onClick={() => toggleVerification(viewProvider.id, viewProvider.isVerified)}
@@ -391,7 +418,6 @@ export default function AdminDashboard() {
                                     {actionLoading ? <Loader2 className="w-5 h-5 animate-spin"/> : (viewProvider.isVerified ? <><XCircle className="w-5 h-5 mr-2"/> Revoke Verification</> : <><CheckCircle className="w-5 h-5 mr-2"/> Approve & Verify</>)}
                                 </button>
 
-                                {/* NEW: REJECT BUTTON */}
                                 {!viewProvider.isVerified && (
                                   <button 
                                       onClick={() => setRejectModal({ isOpen: true, provider: viewProvider, reason: '' })}
@@ -410,7 +436,6 @@ export default function AdminDashboard() {
                                 </button>
                             </div>
 
-                            {/* Document Viewers (SYNCED WITH ALL CERTIFICATES) */}
                             <div className="flex-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col min-h-[300px]">
                                 <h4 className="font-bold text-gray-900 mb-4 flex items-center"><FileText className="w-4 h-4 mr-2 text-gray-400"/> Uploaded Documents</h4>
                                 <div className="space-y-2 flex-1 flex flex-col">
@@ -445,7 +470,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- REJECT REASON MODAL --- */}
+      {/* REJECT MODAL */}
       {rejectModal.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
@@ -465,7 +490,8 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
-      {/* --- PATIENT DETAIL & CASES MODAL --- */}
+      
+      {/* PATIENT MODAL */}
       {viewPatient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm animate-in fade-in" onClick={() => setViewPatient(null)}></div>
@@ -487,7 +513,6 @@ export default function AdminDashboard() {
                 <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30 custom-scrollbar">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                         
-                        {/* Patient Profile Info */}
                         <div className="md:col-span-1 space-y-6">
                             <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                                 <h4 className="font-bold text-gray-900 mb-4 flex items-center"><Users className="w-4 h-4 mr-2 text-blue-600"/> Patient Details</h4>
@@ -507,7 +532,6 @@ export default function AdminDashboard() {
                             )}
                         </div>
 
-                        {/* Patient's Care Requests (Cases) */}
                         <div className="md:col-span-2 space-y-4">
                             <h4 className="font-black text-gray-900 text-lg mb-2">Care Requests Posted</h4>
                             {jobs.filter(j => j.patientId === viewPatient.id).length === 0 ? (
@@ -525,7 +549,6 @@ export default function AdminDashboard() {
                                     <p className="text-sm text-gray-600 mb-3">{job.careType} • {job.location}</p>
                                     <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg mb-3">"{job.details}"</p>
                                     
-                                    {/* SHOW ATTACHED MEDICAL FILE IN ADMIN MODAL */}
                                     {job.medical_url && (
                                       <a href={job.medical_url} target="_blank" rel="noreferrer" className="inline-flex items-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-100 transition">
                                         <FileText className="w-4 h-4 mr-2"/> View Attached Medical File

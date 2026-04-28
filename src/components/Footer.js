@@ -7,7 +7,7 @@ export default function Footer() {
   const pathname = usePathname();
 
   // Next.js Hydration Safe check: use CSS to hide instead of returning null
-  const isAppPage = pathname?.startsWith('/dashboard') || pathname?.startsWith('/cases');
+  const isAppPage = pathname?.startsWith('/dashboard') || pathname?.startsWith('/cases') || pathname.includes('/admin');
 
   return (
     <footer className={`${isAppPage ? 'hidden' : 'block'} bg-[#0a271f] text-emerald-100 py-16 border-t border-[#0f3a2d] font-sans`}>
