@@ -6,6 +6,7 @@ import NurseCard from "@/components/NurseCard";
 import { db } from '@/lib/firebase';
 import { collection, query, where, limit, getDocs } from 'firebase/firestore';
 import { Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 export default function Home() {
   const [featuredNurses, setFeaturedNurses] = useState([]);
@@ -14,12 +15,10 @@ export default function Home() {
   useEffect(() => {
     const fetchFeaturedNurses = async () => {
       try {
-        // Query your database for providers (Adjust 'users' to 'providers' if that is your collection name)
-        // Here we look for users who are nurses. You can add: where("isFeatured", "==", true) if your admin uses that!
         const q = query(
           collection(db, "users"), 
           where("role", "==", "nurse"),
-          limit(8) // Only pull 8 for the homepage to keep it fast
+          limit(8) 
         );
         
         const querySnapshot = await getDocs(q);
@@ -41,52 +40,93 @@ export default function Home() {
     fetchFeaturedNurses();
   }, []);
 
+  // Animation sequences for staggered children
+  const staggerContainer = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: { staggerChildren: 0.2 }
+    }
+  };
+
+  const fadeUpItem = {
+    hidden: { opacity: 0, y: 30 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
+  };
+
   return (
     <main className="min-h-screen bg-[#fdfcf9] flex flex-col font-sans overflow-x-hidden transition-colors duration-300">
       
       {/* 1. HERO SECTION */}
       <section className="max-w-[1400px] mx-auto px-6 pt-20 pb-32 w-full grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-        <div className="space-y-8 z-10">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50/80 text-emerald-800 text-sm font-bold border border-emerald-100">
+        <motion.div 
+          initial="hidden"
+          animate="show"
+          variants={staggerContainer}
+          className="space-y-8 z-10"
+        >
+          <motion.div variants={fadeUpItem} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50/80 text-emerald-800 text-sm font-bold border border-emerald-100">
             <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
             200+ Verified Professionals Available in Nepal
-          </div>
-          <h1 className="text-6xl md:text-7xl font-bold text-gray-900 leading-[1.1] tracking-tight">
+          </motion.div>
+          
+          <motion.h1 variants={fadeUpItem} className="text-6xl md:text-7xl font-bold text-gray-900 leading-[1.1] tracking-tight">
             Find <span className="text-emerald-700 font-serif italic font-normal tracking-normal">trusted care.</span><br />
             Instantly verified.
-          </h1>
-          <p className="text-lg text-gray-600 max-w-lg leading-relaxed font-medium">
+          </motion.h1>
+          
+          <motion.p variants={fadeUpItem} className="text-lg text-gray-600 max-w-lg leading-relaxed font-medium">
             Safe Home connects families, patients, and facilities with licensed nurses, caregivers, and healthcare professionals — all background-checked and credential-verified.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 pt-4">
-            <Link href="/signup?role=patient" className="bg-[#0a271f] text-white px-8 py-4 rounded-xl font-bold hover:bg-black flex items-center justify-center transition-colors shadow-lg">
+          </motion.p>
+          
+          <motion.div variants={fadeUpItem} className="flex flex-col sm:flex-row gap-4 pt-4">
+            <Link href="/signup?role=patient" className="bg-[#0a271f] text-white px-8 py-4 rounded-xl font-bold hover:bg-black flex items-center justify-center transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-1">
               Find a Caregiver →
             </Link>
-            <Link href="/signup?role=nurse" className="bg-white text-gray-900 border-2 border-gray-200 px-8 py-4 rounded-xl font-bold hover:border-emerald-600 flex items-center justify-center transition-all shadow-sm">
+            <Link href="/signup?role=nurse" className="bg-white text-gray-900 border-2 border-gray-200 px-8 py-4 rounded-xl font-bold hover:border-emerald-600 flex items-center justify-center transition-all shadow-sm hover:shadow-md transform hover:-translate-y-1">
               Join as Provider
             </Link>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
         
         <div className="relative w-full h-[600px] flex justify-center items-center mt-10 lg:mt-0">
-           {/* Animated verification badge */}
-           <div className="absolute top-10 right-0 lg:-right-10 bg-white p-5 rounded-2xl shadow-xl border border-gray-100 z-20 w-64 animate-bounce hover:pause" style={{ animationDuration: '4s' }}>
+           {/* Floating verification badge (Replaced Tailwind bounce with smooth Framer Motion) */}
+           <motion.div 
+             initial={{ opacity: 0, x: 50 }}
+             animate={{ opacity: 1, x: 0, y: [0, -10, 0] }}
+             transition={{ 
+               opacity: { delay: 0.8, duration: 0.6 },
+               x: { delay: 0.8, duration: 0.6, type: "spring" },
+               y: { repeat: Infinity, duration: 4, ease: "easeInOut", delay: 1.4 }
+             }}
+             className="absolute top-10 right-0 lg:-right-10 bg-white p-5 rounded-2xl shadow-xl border border-gray-100 z-20 w-64"
+           >
              <p className="text-gray-900 font-black mb-1">✓ License Verified</p>
              <p className="text-xs text-gray-500 mb-2">Sunita S. • RN • Janakpur</p>
              <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">✓ Safe Approved</span>
-           </div>
+           </motion.div>
            
            {/* Rating Badge */}
-           <div className="absolute bottom-32 left-0 lg:-left-20 bg-white p-5 rounded-2xl shadow-xl border border-gray-100 z-20 flex items-center gap-4">
+           <motion.div 
+             initial={{ opacity: 0, x: -50 }}
+             animate={{ opacity: 1, x: 0 }}
+             transition={{ delay: 1, duration: 0.6, type: "spring" }}
+             className="absolute bottom-32 left-0 lg:-left-20 bg-white p-5 rounded-2xl shadow-xl border border-gray-100 z-20 flex items-center gap-4"
+           >
              <span className="text-3xl font-black text-gray-900">4.9</span>
              <div>
                <div className="text-yellow-400 text-sm">★★★★★</div>
                <p className="text-xs text-gray-500">Avg provider rating</p>
              </div>
-           </div>
+           </motion.div>
 
-           {/* Mock Mobile Screen */}
-           <div className="w-[320px] h-[600px] bg-[#0a271f] rounded-[3rem] shadow-2xl relative border-[8px] border-[#1a1a1a] overflow-hidden flex flex-col p-6 z-10">
+           {/* Mock Mobile Screen Sliding In */}
+           <motion.div 
+             initial={{ opacity: 0, y: 100 }}
+             animate={{ opacity: 1, y: 0 }}
+             transition={{ duration: 0.8, type: "spring", bounce: 0.4 }}
+             className="w-[320px] h-[600px] bg-[#0a271f] rounded-[3rem] shadow-2xl relative border-[8px] border-[#1a1a1a] overflow-hidden flex flex-col p-6 z-10"
+           >
               <div className="flex justify-between items-center mb-8">
                  <span className="text-white font-serif text-xl">Safe Home.</span>
               </div>
@@ -104,12 +144,18 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-           </div>
+           </motion.div>
         </div>
       </section>
 
       {/* 2. STATS BAR */}
-      <section className="bg-[#0a271f] py-16">
+      <motion.section 
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, margin: "-100px" }}
+        transition={{ duration: 0.8 }}
+        className="bg-[#0a271f] py-16"
+      >
         <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-emerald-900/50">
           {[
             { value: "500+", label: "Verified Professionals" },
@@ -123,10 +169,16 @@ export default function Home() {
             </div>
           ))}
         </div>
-      </section>
+      </motion.section>
 
       {/* 3. FEATURED NURSES SECTION */}
-      <section className="py-24 bg-[#fdfcf9] border-t border-gray-100 transition-colors duration-300">
+      <motion.section 
+        initial={{ opacity: 0, y: 50 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-100px" }}
+        transition={{ duration: 0.7 }}
+        className="py-24 bg-[#fdfcf9] border-t border-gray-100 transition-colors duration-300"
+      >
         <div className="max-w-[1400px] mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-end mb-12 gap-4">
             <div>
@@ -143,8 +195,6 @@ export default function Home() {
               <NurseCard 
                 key={nurse.id} 
                 id={nurse.id}
-                
-                /* This translates your DB fields to the NurseCard props */
                 name={nurse.full_name || nurse.name} 
                 specialty={nurse.specialty || nurse.role} 
                 rate={nurse.hourlyRate} 
@@ -157,19 +207,25 @@ export default function Home() {
           </div>
           
           <div className="mt-16 text-center">
-            <Link href="/find-providers" className="inline-block bg-white text-gray-900 border-2 border-gray-200 px-8 py-4 rounded-xl font-bold hover:border-emerald-700 hover:text-emerald-700 transition-all shadow-sm">
+            <Link href="/find-providers" className="inline-block bg-white text-gray-900 border-2 border-gray-200 px-8 py-4 rounded-xl font-bold hover:border-emerald-700 hover:text-emerald-700 transition-all shadow-sm hover:shadow-md transform hover:-translate-y-1">
               Explore All Providers
             </Link>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* 4. HOW IT WORKS */}
       <section className="py-24 bg-white transition-colors duration-300">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <p className="text-emerald-700 font-bold mb-4 uppercase tracking-wider text-sm">Simple Process</p>
-          <h2 className="text-4xl font-black text-gray-900 mb-6">Care in three simple steps.</h2>
-          <p className="text-gray-600 max-w-2xl mx-auto mb-20 text-lg font-medium">No phone calls, no waiting weeks. Browse, match, and book verified care professionals on your schedule.</p>
+        <motion.div 
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+          variants={staggerContainer}
+          className="max-w-7xl mx-auto px-6 text-center"
+        >
+          <motion.p variants={fadeUpItem} className="text-emerald-700 font-bold mb-4 uppercase tracking-wider text-sm">Simple Process</motion.p>
+          <motion.h2 variants={fadeUpItem} className="text-4xl font-black text-gray-900 mb-6">Care in three simple steps.</motion.h2>
+          <motion.p variants={fadeUpItem} className="text-gray-600 max-w-2xl mx-auto mb-20 text-lg font-medium">No phone calls, no waiting weeks. Browse, match, and book verified care professionals on your schedule.</motion.p>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-left">
             {[
@@ -177,20 +233,26 @@ export default function Home() {
               { step: "02", icon: "🔍", title: "Browse profiles", desc: "View detailed profiles with credentials, experience, and verified reviews." },
               { step: "03", icon: "✅", title: "Book securely", desc: "Message, interview, and book directly. Secure direct requests." }
             ].map((item, i) => (
-              <div key={i} className="bg-[#fdfcf9] p-10 rounded-[2rem] border border-gray-100 relative overflow-hidden group hover:border-emerald-200 transition-colors">
-                <div className="text-8xl font-black text-gray-100 absolute -top-6 -right-6 select-none">{item.step}</div>
-                <div className="text-5xl mb-8 relative z-10">{item.icon}</div>
+              <motion.div key={i} variants={fadeUpItem} className="bg-[#fdfcf9] p-10 rounded-[2rem] border border-gray-100 relative overflow-hidden group hover:border-emerald-300 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2">
+                <div className="text-8xl font-black text-gray-100 absolute -top-6 -right-6 select-none transition-transform duration-300 group-hover:scale-110">{item.step}</div>
+                <div className="text-5xl mb-8 relative z-10 transition-transform duration-300 group-hover:-translate-y-2">{item.icon}</div>
                 <h3 className="text-2xl font-black text-gray-900 mb-4 relative z-10">{item.title}</h3>
                 <p className="text-gray-600 font-medium leading-relaxed relative z-10">{item.desc}</p>
-              </div>
+              </motion.div>
             ))}
           </div>
-        </div>
+        </motion.div>
       </section>
 
       {/* 5. TRUST & SAFETY SECTION */}
-      <section className="py-24 max-w-[1400px] mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-         <div className="bg-[#0a271f] rounded-[2.5rem] p-8 shadow-2xl border border-[#0f3a2d] relative">
+      <motion.section 
+        initial={{ opacity: 0, y: 50 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-100px" }}
+        transition={{ duration: 0.8 }}
+        className="py-24 max-w-[1400px] mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center"
+      >
+         <div className="bg-[#0a271f] rounded-[2.5rem] p-8 shadow-2xl border border-[#0f3a2d] relative hover:shadow-emerald-900/50 transition-shadow duration-500">
             <div className="flex items-center gap-4 mb-6">
                <div className="w-16 h-16 bg-emerald-800 rounded-2xl flex items-center justify-center text-3xl shadow-inner">👩🏽</div>
                <div>
@@ -222,25 +284,38 @@ export default function Home() {
                  { icon: "📋", title: "License Verified", desc: "Nepal Nursing Council confirmed" },
                  { icon: "🛡️", title: "Safe Approved", desc: "Full platform review passed" }
                ].map((item, i) => (
-                 <div key={i} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center">
+                 <motion.div 
+                   whileHover={{ y: -5, borderColor: '#34d399' }}
+                   key={i} 
+                   className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center transition-all cursor-default"
+                 >
                     <span className="text-2xl mb-2">{item.icon}</span>
                     <h4 className="font-bold text-gray-900 text-sm">{item.title}</h4>
                     <p className="text-xs text-gray-500">{item.desc}</p>
-                 </div>
+                 </motion.div>
                ))}
             </div>
          </div>
-      </section>
+      </motion.section>
 
       {/* 6. WHO IT IS FOR */}
-      <section className="py-24 bg-white border-t border-gray-100 transition-colors duration-300">
+      <motion.section 
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, margin: "-100px" }}
+        transition={{ duration: 0.8 }}
+        className="py-24 bg-white border-t border-gray-100 transition-colors duration-300"
+      >
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-black text-gray-900">Built for both sides of care.</h2>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-[#fdfcf9] rounded-[2rem] p-12 border border-gray-200 shadow-sm">
+            <motion.div 
+              whileHover={{ y: -5, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+              className="bg-[#fdfcf9] rounded-[2rem] p-12 border border-gray-200 shadow-sm transition-all"
+            >
               <div className="text-5xl mb-8">🏡</div>
               <p className="text-emerald-700 font-extrabold mb-3 uppercase tracking-wide text-sm">For Families & Patients</p>
               <h3 className="text-3xl font-black text-gray-900 mb-6">Find <span className="italic">the right</span> care.</h3>
@@ -248,22 +323,25 @@ export default function Home() {
               <Link href="/signup?role=patient" className="text-gray-900 font-bold hover:text-emerald-700 flex items-center gap-2 text-lg">
                 Find Care Now →
               </Link>
-            </div>
+            </motion.div>
 
-            <div className="bg-[#0a271f] rounded-[2rem] p-12 shadow-2xl relative overflow-hidden">
+            <motion.div 
+              whileHover={{ y: -5, boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)" }}
+              className="bg-[#0a271f] rounded-[2rem] p-12 shadow-2xl relative overflow-hidden transition-all"
+            >
               <div className="relative z-10">
                 <div className="text-5xl mb-8">🩺</div>
                 <p className="text-emerald-500 font-extrabold mb-3 uppercase tracking-wide text-sm">For Caregivers</p>
                 <h3 className="text-3xl font-black text-white mb-6"><span className="italic">Your skills,</span> your schedule.</h3>
                 <p className="text-gray-300 mb-10 font-medium text-lg leading-relaxed">Build your profile, showcase your credentials, set your rates, and connect with clients on your terms.</p>
-                <Link href="/signup?role=nurse" className="bg-white text-[#0a271f] px-8 py-4 rounded-xl font-bold hover:bg-gray-100 transition-colors inline-block text-lg">
+                <Link href="/signup?role=nurse" className="bg-white text-[#0a271f] px-8 py-4 rounded-xl font-bold hover:bg-gray-100 transition-colors inline-block text-lg shadow-lg">
                   Join as a Provider
                 </Link>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
     </main>
   );

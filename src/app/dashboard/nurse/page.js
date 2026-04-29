@@ -669,6 +669,65 @@ export default function NurseSaaSDashboard() {
   };
 
   // ==========================================
+  // RENDER: MY DOCUMENTS TAB
+  // ==========================================
+  const renderDocuments = () => {
+    // Collect all the specific document URLs from the user's data
+    const myDocs = [
+      { name: "Curriculum Vitae (CV)", url: userData.cv_url },
+      { name: "Professional License", url: userData.license_url },
+      { name: "SLC Certificate", url: userData.cert_slc_url },
+      { name: "+2 Certificate", url: userData.cert_plus2_url },
+      { name: "Bachelor's Degree", url: userData.cert_bachelor_url }
+    ].filter(doc => doc.url); // This cleanly removes any documents they haven't uploaded
+
+    return (
+      <div className="animate-in fade-in duration-300 max-w-5xl">
+        <div className="mb-8">
+          <h2 className="text-2xl font-black text-gray-900 font-serif">My Documents</h2>
+          <p className="text-sm text-gray-500 font-medium">View and verify the credentials and files you uploaded.</p>
+        </div>
+
+        {myDocs.length === 0 ? (
+          <div className="py-20 text-center bg-white rounded-3xl border-2 border-dashed border-gray-200 shadow-sm">
+            <div className="w-16 h-16 bg-gray-50 text-gray-400 rounded-full flex items-center justify-center mx-auto mb-4">
+              <FileText className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-black text-gray-900">No Documents Found</h3>
+            <p className="text-gray-500 mt-2 text-sm font-medium">You haven't uploaded any documents yet. Please update your profile to add them.</p>
+            <button onClick={() => router.push('/profile')} className="mt-6 px-6 py-2.5 bg-[#0a271f] text-white font-bold rounded-xl text-sm shadow-md hover:bg-black transition">
+              Go to Profile Setup
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {myDocs.map((doc, idx) => (
+              <a 
+                key={idx} 
+                href={doc.url} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-400 hover:shadow-md transition group flex flex-col h-full"
+              >
+                <div className="flex justify-between items-start mb-6">
+                  <div className="bg-emerald-50 p-4 rounded-2xl group-hover:bg-emerald-100 transition group-hover:scale-105 duration-300">
+                    <FileText className="w-8 h-8 text-emerald-600" />
+                  </div>
+                  <ExternalLink className="w-5 h-5 text-gray-300 group-hover:text-emerald-500 transition" />
+                </div>
+                <div className="mt-auto border-t border-gray-50 pt-4">
+                  <h3 className="font-black text-gray-900 text-lg mb-1">{doc.name}</h3>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Click to view secure file</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ==========================================
   // RENDER: MY CASES TAB
   // ==========================================
   const renderMyCases = () => {
@@ -935,6 +994,10 @@ const renderAvailability = () => {
             <button onClick={() => setActiveTab('reviews')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'reviews' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
               <Star className="w-5 h-5 mr-3" /> My Reviews
             </button>
+
+            <button onClick={() => setActiveTab('documents')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'documents' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+              <FileText className="w-5 h-5 mr-3" /> My Documents
+            </button>
             
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 mt-6 px-4">Account</p>
             <button onClick={() => router.push('/profile')} className="w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition">
@@ -960,6 +1023,7 @@ const renderAvailability = () => {
           {activeTab === 'messages' && renderMessages()}
           {activeTab === 'availability' && renderAvailability()}
           {activeTab === 'reviews' && renderReviews()} 
+          {activeTab === 'documents' && renderDocuments()}
         </main>
       </div>
 

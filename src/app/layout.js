@@ -1,6 +1,12 @@
 import "./globals.css";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer"; 
+import CustomCursor from "@/components/CustomCursor";
+
+export const metadata = {
+  title: "Safe Home — Trusted Care",
+  description: "Verified Professionals. Right when you need them.",
+};
 
 export default function RootLayout({ children }) {
   return (
@@ -9,14 +15,19 @@ export default function RootLayout({ children }) {
         suppressHydrationWarning 
         className="bg-[#fdfcf9] antialiased min-h-screen flex flex-col"
       >
+        {/* The green dot that follows the mouse */}
+        <CustomCursor />
+
+        {/* Global Navigation */}
         <Navbar />
-         
-       <div className="flex-grow flex flex-col">
+
+        {/* Main Content Area */}
+        <main className="flex-grow flex flex-col">
           {children}
-        </div>
-      
+        </main>
+
+        {/* Global Footer */}
         <Footer /> 
-        
       </body>
     </html>
   );

@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
-  doc, getDoc, collection, query, onSnapshot, where, updateDoc, addDoc, serverTimestamp 
+  doc, getDoc, collection, query, onSnapshot, where, updateDoc, addDoc, serverTimestamp, deleteDoc 
 } from 'firebase/firestore';
 import { 
   LayoutDashboard, UserCircle, Plus, Search, Bell, 
   MapPin, Loader2, HeartPulse, FileText, ChevronRight, 
-  Activity, Star, ShieldCheck, Briefcase, MessageSquare, CheckCircle, AlertTriangle 
+  Activity, Star, ShieldCheck, Briefcase, MessageSquare, CheckCircle, AlertTriangle, Trash2 
 } from 'lucide-react';
 
 export default function PatientSaaSDashboard() {
@@ -36,6 +36,10 @@ export default function PatientSaaSDashboard() {
   // Review Modal State
   const [reviewModal, setReviewModal] = useState({ isOpen: false, job: null, rating: 5, reviewText: '' });
   const [submittingReview, setSubmittingReview] = useState(false);
+
+  // Delete Case Modal State
+  const [deleteModal, setDeleteModal] = useState({ isOpen: false, jobId: null });
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // ==========================================
   // CUSTOM SORTING FUNCTION FOR CASES
@@ -133,7 +137,7 @@ export default function PatientSaaSDashboard() {
   }, [router]);
 
   // ==========================================
-  // 2. LIVE DATABASE ACTIONS (Chat & Reviews)
+  // 2. LIVE DATABASE ACTIONS (Chat, Reviews, Delete)
   // ==========================================
   const handleReviewSubmit = async (e) => {
     e.preventDefault();
@@ -200,6 +204,22 @@ export default function PatientSaaSDashboard() {
       setNewMessage("");
     } catch (error) {
       console.error("Error sending message:", error);
+    }
+  };
+
+  // DELETE CASE FUNCTION
+  const executeDeleteJob = async () => {
+    if (!deleteModal.jobId) return;
+    setIsDeleting(true);
+    
+    try {
+      await deleteDoc(doc(db, "care_requests", deleteModal.jobId));
+      setDeleteModal({ isOpen: false, jobId: null });
+    } catch (error) {
+      console.error("Error deleting case:", error);
+      alert("Failed to delete the case. Please check your connection.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -493,6 +513,17 @@ export default function PatientSaaSDashboard() {
               {job.isReviewed && (
                  <p className="text-sm font-bold text-gray-400 flex items-center px-2 py-1"><CheckCircle className="w-4 h-4 mr-1.5"/> Reviewed</p>
               )}
+
+              {/* DELETE BUTTON: Only show if the case is not yet completed */}
+              {job.status !== 'completed' && (
+                <button 
+                  onClick={() => setDeleteModal({ isOpen: true, jobId: job.id })}
+                  className="px-6 py-3 bg-red-50 text-red-600 border border-red-100 font-bold rounded-xl hover:bg-red-100 transition shadow-sm flex items-center justify-center text-sm mt-2"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Cancel Request
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -627,17 +658,12 @@ export default function PatientSaaSDashboard() {
       </aside>
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* DUPLICATE BELL REMOVED FROM HEADER BELOW */}
         <header className="bg-white border-b border-gray-100 p-6 flex justify-between items-center shrink-0 z-10">
            <div>
              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Patient Portal</p>
              <h2 className="text-2xl font-black text-gray-900 font-serif">Hello, {displayName.split(' ')[0]} 👋</h2>
-           </div>
-           <div className="flex items-center gap-4">
-             <button className="relative p-2 text-gray-400 hover:text-emerald-600 bg-gray-50 rounded-full transition">
-               <Bell className="w-5 h-5" />
-               {activeCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>}
-             </button>
-           </div>
+           </div>           
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
@@ -683,6 +709,40 @@ export default function PatientSaaSDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- CUSTOM DELETE CONFIRMATION MODAL --- */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95 text-center">
+            
+            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-white shadow-sm">
+              <Trash2 className="w-10 h-10 text-red-600" />
+            </div>
+            
+            <h3 className="text-2xl font-black text-gray-900 font-serif mb-2">Cancel Care Request?</h3>
+            <p className="text-gray-500 font-medium mb-8 text-sm">
+              Are you sure you want to permanently delete this care request? This action cannot be undone, and any interested providers will no longer see it.
+            </p>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteModal({ isOpen: false, jobId: null })} 
+                className="flex-1 bg-white border-2 border-gray-100 text-gray-700 font-bold py-4 rounded-xl hover:bg-gray-50 transition"
+                disabled={isDeleting}
+              >
+                Go Back
+              </button>
+              <button 
+                onClick={executeDeleteJob} 
+                disabled={isDeleting} 
+                className="flex-1 bg-red-600 text-white font-bold py-4 rounded-xl hover:bg-red-700 transition flex items-center justify-center shadow-lg"
+              >
+                {isDeleting ? <Loader2 className="w-5 h-5 animate-spin"/> : "Yes, Delete It"}
+              </button>
+            </div>
           </div>
         </div>
       )}

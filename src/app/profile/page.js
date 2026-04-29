@@ -15,6 +15,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import ChangePassword from '@/components/ChangePassword';
+import { translateFirebaseError } from '@/lib/errorTranslator';
 
 export default function Profile() {
   const router = useRouter();
@@ -151,8 +152,24 @@ export default function Profile() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSaving(true); setMessage(null);
+    setSaving(true); 
+    setMessage(null);
 
+    // ==========================================
+    // 1. NEPAL PHONE VALIDATION GUARD
+    // ==========================================
+    if (formData.phone) {
+      const phoneRegex = /^\d{10}$/;
+      if (!phoneRegex.test(formData.phone)) {
+        setMessage({ type: 'error', text: "Please enter a valid 10-digit mobile number." });
+        setSaving(false);
+        return; // Stops the function from saving bad data!
+      }
+    }
+
+    // ==========================================
+    // 2. FIREBASE DATABASE SAVE
+    // ==========================================
     try {
       const payload = { ...formData, updated_at: new Date() };
       
@@ -161,12 +178,15 @@ export default function Profile() {
       setMessage({ type: 'success', text: "Profile updated successfully!" });
       
       setTimeout(() => {
-        // 🚨 Routes cleanly to /admin if they are an admin
+        // Routes cleanly to /admin if they are an admin
         router.push(formData.role === 'admin' ? '/admin' : `/dashboard/${formData.role === 'nurse' ? 'nurse' : 'patient'}`);
       }, 1500);
 
     } catch (error) {
-      setMessage({ type: 'error', text: error.message || "An error occurred while saving." });
+      // ==========================================
+      // 3. THE ERROR TRANSLATOR IN ACTION
+      // ==========================================
+      setMessage({ type: 'error', text: translateFirebaseError(error) });
     } finally {
       setSaving(false);
     } 

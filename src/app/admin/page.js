@@ -38,7 +38,7 @@ export default function AdminDashboard() {
   const [rejectModal, setRejectModal] = useState({ isOpen: false, provider: null, reason: '' });
   const [rejecting, setRejecting] = useState(false);
   
-  // NEW: Delete User Modal State
+  // Delete User Modal State
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, user: null });
   const [deleting, setDeleting] = useState(false);
 
@@ -54,40 +54,48 @@ export default function AdminDashboard() {
         return;
       }
 
-      const userDocRef = doc(db, "users", currentUser.uid);
-      const userDocSnap = await getDoc(userDocRef);
+      try {
+        const userDocRef = doc(db, "users", currentUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
 
-      if (userDocSnap.exists()) {
-        const data = userDocSnap.data();
-        
-        if (data.role !== 'admin') {
-          router.push(`/dashboard/${data.role === 'nurse' ? 'nurse' : 'patient'}`); 
-          return;
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data();
+          
+          if (data.role !== 'admin') {
+            router.push(`/dashboard/${data.role === 'nurse' ? 'nurse' : 'patient'}`); 
+            return;
+          }
+          
+          setAdminAuth(data);
+          setLoading(false); // Safely drop the loading screen
+
+          const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+            const allUsers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            const registeredNurses = allUsers.filter(u => u.role === 'nurse' || u.role === 'provider');
+            const registeredPatients = allUsers.filter(u => u.role === 'patient' || u.role === 'family');
+            
+            setAllUsersLog(allUsers.reverse()); 
+            setNurses(registeredNurses);
+            setPatients(registeredPatients);
+          });
+
+          const unsubJobs = onSnapshot(collection(db, "care_requests"), (snapshot) => {
+            setJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })).reverse());
+          });
+
+          return () => {
+            unsubUsers();
+            unsubJobs();
+          };
+        } else {
+          setLoading(false);
+          router.push('/login');
         }
-        
-        setAdminAuth(data);
+      } catch (error) {
+        // This catch block prevents the infinite loading glitch!
+        console.error("Authentication Error:", error);
         setLoading(false);
-
-        const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
-          const allUsers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          
-          const registeredNurses = allUsers.filter(u => u.role === 'nurse' || u.role === 'provider');
-          const registeredPatients = allUsers.filter(u => u.role === 'patient' || u.role === 'family');
-          
-          setAllUsersLog(allUsers.reverse()); 
-          setNurses(registeredNurses);
-          setPatients(registeredPatients);
-        });
-
-        const unsubJobs = onSnapshot(collection(db, "care_requests"), (snapshot) => {
-          setJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })).reverse());
-        });
-
-        return () => {
-          unsubUsers();
-          unsubJobs();
-        };
-      } else {
         router.push('/login');
       }
     });
@@ -148,14 +156,13 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- NEW: BAN & DELETE FUNCTIONS ---
   const toggleBanUser = async (userId, currentStatus) => {
     setActionLoading(true);
     try {
       const isCurrentlyBanned = currentStatus === 'banned';
       await updateDoc(doc(db, "users", userId), { 
         accountStatus: isCurrentlyBanned ? 'approved' : 'banned',
-        isVerified: isCurrentlyBanned ? true : false // Revoke verification if banned
+        isVerified: isCurrentlyBanned ? true : false 
       });
     } catch (error) {
       console.error("Error toggling ban:", error);
@@ -169,7 +176,6 @@ export default function AdminDashboard() {
     try {
       const targetUserId = deleteModal.user.id;
 
-      // 1. THE GHOST BAN (Wipe personal data & lock account)
       await updateDoc(doc(db, "users", targetUserId), {
         accountStatus: 'banned',
         isVerified: false,
@@ -181,17 +187,13 @@ export default function AdminDashboard() {
         avatar_url: '/default-avatar.png'
       });
       
-      // 2. THE CLEANUP CREW (Delete all their posted cases)
-      // Find all care requests where this user is the patient
       const casesQuery = query(collection(db, "care_requests"), where("patientId", "==", targetUserId));
       const casesSnapshot = await getDocs(casesQuery);
       
-      // Loop through and delete every case we found
       const deletePromises = casesSnapshot.docs.map(jobDoc => 
         deleteDoc(doc(db, "care_requests", jobDoc.id))
       );
       
-      // Wait for all cases to be deleted
       await Promise.all(deletePromises);
       
       setDeleteModal({ isOpen: false, user: null });
@@ -228,9 +230,33 @@ export default function AdminDashboard() {
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a271f] overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-600/20 rounded-full blur-[100px]"></div>
         <div className="relative z-10 flex flex-col items-center animate-in fade-in duration-700">
-          <HeartPulse className="w-12 h-12 text-emerald-400 mb-4" />
-          <h1 className="text-4xl font-black text-white font-serif tracking-tight mb-2">Safe Home Admin</h1>
+          
+          <div className="relative mb-6">
+            <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-20"></div>
+            <div className="bg-emerald-900/50 p-4 rounded-full border border-emerald-700/50 backdrop-blur-sm relative z-10">
+              <ShieldCheck className="w-12 h-12 text-emerald-400" strokeWidth={1.5} />
+            </div>
+          </div>
+
+          <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
+            System Admin<span className="text-emerald-500">.</span>
+          </h1>
+
+          <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
+            Authenticating Master Credentials...
+          </p>
+
+          <div className="w-48 h-1 bg-emerald-950 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 rounded-full w-1/2 animate-[shimmer_1.5s_infinite_ease-in-out] origin-left"></div>
+          </div>
         </div>
+        
+        <style jsx>{`
+          @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(200%); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -466,7 +492,6 @@ export default function AdminDashboard() {
     </div>
   );
 
-  // --- NEW: MEMBERS / ACCESS CONTROL TAB ---
   const renderMembers = () => (
     <div className="animate-in fade-in duration-300 max-w-6xl">
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
@@ -514,7 +539,6 @@ export default function AdminDashboard() {
                       )}
                     </td>
                     <td className="p-5 text-right pr-6 flex justify-end gap-2">
-                      {/* BAN BUTTON */}
                       <button 
                         onClick={() => toggleBanUser(user.id, user.accountStatus)} 
                         disabled={actionLoading || user.role === 'admin'}
@@ -524,7 +548,6 @@ export default function AdminDashboard() {
                         <ShieldBan className="w-4 h-4"/>
                       </button>
                       
-                      {/* PERMANENT DELETE BUTTON */}
                       <button 
                         onClick={() => setDeleteModal({ isOpen: true, user: user })} 
                         disabled={user.role === 'admin'}
@@ -578,7 +601,6 @@ export default function AdminDashboard() {
               <span className="flex items-center"><ShieldAlert className="w-5 h-5 mr-3" /> Verifications</span>
               {pendingNurses.length > 0 && <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full">{pendingNurses.length}</span>}
             </button>
-            {/* NEW: ACCESS CONTROL TAB */}
             <button onClick={() => setActiveTab('members')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'members' ? 'bg-red-50 text-red-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
               <UserX className="w-5 h-5 mr-3" /> Access Control
             </button>
@@ -634,13 +656,12 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      {/* MODALS BELOW (Provider, Patient, Reject) */}
+      {/* MODALS BELOW */}
       
-      {/* 🚨 NEW: DELETE CONFIRMATION MODAL 🚨 */}
       {deleteModal.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 className="w-8 h-8 text-red-600"/></div>
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-sm"><Trash2 className="w-8 h-8 text-red-600"/></div>
             <h3 className="text-2xl font-black text-center text-gray-900 font-serif mb-2">Delete User?</h3>
             <p className="text-gray-500 text-sm text-center mb-6">
               You are about to permanently delete <b>{deleteModal.user.name || deleteModal.user.full_name}</b> from the database. This action cannot be undone.
@@ -761,9 +782,9 @@ export default function AdminDashboard() {
       )}
 
       {rejectModal.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4"><XCircle className="w-8 h-8 text-red-600"/></div>
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-sm"><XCircle className="w-8 h-8 text-red-600"/></div>
             <h3 className="text-2xl font-black text-center text-gray-900 font-serif mb-2">Reject Provider</h3>
             <p className="text-gray-500 text-sm text-center mb-6">Explain why {rejectModal.provider.name || 'this provider'} is being rejected. They will see this message.</p>
             
