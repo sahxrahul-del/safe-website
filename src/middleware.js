@@ -55,7 +55,9 @@ export async function middleware(request) {
     '/login', 
     '/signup', 
     '/forgot-password', 
-    '/contact'
+    '/contact',
+    '/privacy',
+    '/terms'
   ];
 
   // If path is NOT public and NOT a static file, redirect to Login
