@@ -252,7 +252,7 @@ export default function AdminDashboard() {
     <div className="animate-in fade-in duration-300 space-y-6 max-w-7xl">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition cursor-pointer" onClick={() => setActiveTab('providers')}>
-            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Providers</span> <ShieldCheck className="w-5 h-5 text-emerald-600"/></div>
+            <div className="flex justify-between items-start text-gray-400 mb-4"><span className="text-sm font-bold">Total Nurses</span> <ShieldCheck className="w-5 h-5 text-emerald-600"/></div>
             <div><p className="text-4xl font-black text-gray-900">{nurses.length}</p></div>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition cursor-pointer" onClick={() => setActiveTab('patients')}>
@@ -260,7 +260,7 @@ export default function AdminDashboard() {
             <div><p className="text-4xl font-black text-gray-900">{patients.length}</p></div>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between cursor-pointer hover:shadow-md transition" onClick={() => setActiveTab('jobs')}>
-            <div className="flex justify-between items-start text-gray-400 mb-2"><span className="text-sm font-bold">Total Jobs</span> <Briefcase className="w-5 h-5 text-purple-600"/></div>
+            <div className="flex justify-between items-start text-gray-400 mb-2"><span className="text-sm font-bold">Total Care Requests</span> <Briefcase className="w-5 h-5 text-purple-600"/></div>
             <div>
               <p className="text-4xl font-black text-gray-900 mb-1">{jobs.length}</p>
               <p className="text-xs font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-md">{activeJobsCount} Active</p>
@@ -291,7 +291,7 @@ export default function AdminDashboard() {
                  <span className={`text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider ${job.status === 'searching' ? 'bg-amber-50 text-amber-600' : (job.status === 'completed' ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-600')}`}>{job.status}</span>
               </div>
             ))}
-            {jobs.length === 0 && <div className="p-6 text-center text-sm text-gray-400">No jobs posted yet.</div>}
+            {jobs.length === 0 && <div className="p-6 text-center text-sm text-gray-400">No Care Requests yet.</div>}
           </div>
         </div>
 
@@ -329,7 +329,7 @@ export default function AdminDashboard() {
           <table className="w-full text-left">
             <thead className="bg-gray-50 text-gray-400 text-xs uppercase font-bold tracking-wider">
               <tr>
-                <th className="p-5 pl-6">Provider Info</th>
+                <th className="p-5 pl-6">Nurse Info</th>
                 <th className="p-5">Contact</th>
                 <th className="p-5">Location</th>
                 <th className="p-5 text-right pr-6">Actions</th>
@@ -337,7 +337,7 @@ export default function AdminDashboard() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filterData(dataSet).length === 0 ? (
-                <tr><td colSpan="4" className="p-8 text-center text-gray-400 font-medium">No providers found.</td></tr>
+                <tr><td colSpan="4" className="p-8 text-center text-gray-400 font-medium">No nurses found.</td></tr>
               ) : (
                 filterData(dataSet).map(nurse => (
                   <tr key={nurse.id} className="hover:bg-gray-50/50 transition">
@@ -481,7 +481,7 @@ export default function AdminDashboard() {
                 <th className="p-5 pl-6">User Info</th>
                 <th className="p-5">Role</th>
                 <th className="p-5">Access Status</th>
-                <th className="p-5 text-right pr-6">Danger Zone</th>
+                <th className="p-5 text-right pr-6">Ban/Delete Users</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -585,10 +585,10 @@ export default function AdminDashboard() {
             
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 mt-6 px-4">Databases</p>
             <button onClick={() => setActiveTab('providers')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'providers' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
-              <ShieldCheck className="w-5 h-5 mr-3" /> All Providers
+              <ShieldCheck className="w-5 h-5 mr-3" /> All Nurses
             </button>
             <button onClick={() => setActiveTab('featured')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'featured' ? 'bg-purple-50 text-purple-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
-              <Star className="w-5 h-5 mr-3" /> Featured VIPs
+              <Star className="w-5 h-5 mr-3" /> Featured Nurses
             </button>
             <button onClick={() => setActiveTab('patients')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'patients' ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
               <Users className="w-5 h-5 mr-3" /> Patients
@@ -612,10 +612,10 @@ export default function AdminDashboard() {
            <div>
              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Admin Portal</p>
              <h2 className="text-2xl font-black text-gray-900 font-serif">
-                {activeTab === 'overview' && 'Dashboard Overview'}
+                {activeTab === 'overview' && 'Dashboard'}
                 {activeTab === 'verifications' && 'Pending Approvals'}
-                {activeTab === 'providers' && 'Verified Providers'}
-                {activeTab === 'featured' && 'Featured Providers'}
+                {activeTab === 'providers' && 'Verified Nurses'}
+                {activeTab === 'featured' && 'Featured Nurses'}
                 {activeTab === 'patients' && 'Patient Database'}
                 {activeTab === 'jobs' && 'Global Care Requests'}
                 {activeTab === 'members' && 'Member Access Control'}
@@ -626,8 +626,8 @@ export default function AdminDashboard() {
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {activeTab === 'overview' && renderOverview()}
           {activeTab === 'verifications' && <ProviderTable title="Pending Verifications" dataSet={pendingNurses} />}
-          {activeTab === 'providers' && <ProviderTable title="Verified Providers" dataSet={verifiedNurses} />}
-          {activeTab === 'featured' && <ProviderTable title="Featured VIP Providers" dataSet={featuredNurses} />}
+          {activeTab === 'providers' && <ProviderTable title="Verified Nurses" dataSet={verifiedNurses} />}
+          {activeTab === 'featured' && <ProviderTable title="Featured Nurses" dataSet={featuredNurses} />}
           {activeTab === 'patients' && renderPatients()}
           {activeTab === 'jobs' && renderJobs()}
           {activeTab === 'members' && renderMembers()}
