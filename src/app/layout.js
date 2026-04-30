@@ -4,7 +4,7 @@ import Footer from "../components/Footer";
 import CustomCursor from "@/components/CustomCursor";
 
 export const metadata = {
-  title: "Safe Home — Trusted Care",
+  title: "Safe — Trusted Care",
   description: "Verified Professionals. Right when you need them.",
 };
 
