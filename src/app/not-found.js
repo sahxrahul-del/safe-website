@@ -23,7 +23,7 @@ export default function NotFound() {
 
         {/* The Copy */}
         <h2 className="text-3xl sm:text-4xl font-bold text-[#0a271f] mb-4 tracking-tight">
-          Oops! Looks like you're lost.
+          Please EMAIL US: support@usesafe.app.(WE'LL FIX IT).
         </h2>
         <p className="text-lg text-gray-500 mb-10">
           We couldn't find the page you're looking for. The link might be broken, or the page may have been moved. Let's get you back to safety.

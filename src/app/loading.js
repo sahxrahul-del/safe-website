@@ -21,7 +21,7 @@ export default function Loading() {
 
         {/* Brand Name */}
         <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
-          Safe Home<span className="text-emerald-500">.</span>
+          Safe <span className="text-emerald-500">.</span>
         </h1>
 
         {/* Tagline */}

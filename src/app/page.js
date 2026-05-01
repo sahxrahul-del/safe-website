@@ -125,7 +125,7 @@ export default function Home() {
           </motion.h1>
           
           <motion.p variants={fadeUpItem} className="text-lg text-gray-600 max-w-lg leading-relaxed font-medium">
-            Safe Home connects families, patients, and facilities with licensed nurses, caregivers, and healthcare professionals — all background-checked and credential-verified.
+            Safe connects families, patients, and facilities with licensed nurses, caregivers, and healthcare professionals — all background-checked and credential-verified.
           </motion.p>
           
           <motion.div variants={fadeUpItem} className="flex flex-col sm:flex-row gap-4 pt-4">
@@ -151,7 +151,7 @@ export default function Home() {
              className="absolute top-10 right-0 lg:-right-10 bg-white p-5 rounded-2xl shadow-xl border border-gray-100 z-20 w-64"
            >
              <p className="text-gray-900 font-black mb-1">✓ License Verified</p>
-             <p className="text-xs text-gray-500 mb-2">Sunita S. • RN • Janakpur</p>
+             <p className="text-xs text-gray-500 mb-2">Sunita S. • RN • LA</p>
              <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full">✓ Safe Approved</span>
            </motion.div>
            
@@ -177,7 +177,7 @@ export default function Home() {
              className="w-[320px] h-[600px] bg-[#0a271f] rounded-[3rem] shadow-2xl relative border-[8px] border-[#1a1a1a] overflow-hidden flex flex-col p-6 z-10"
            >
               <div className="flex justify-between items-center mb-8">
-                 <span className="text-white font-serif text-xl">Safe Home.</span>
+                 <span className="text-white font-serif text-xl">Safe</span>
               </div>
               <h3 className="text-3xl text-white font-bold leading-tight mb-6">Find <span className="font-serif italic font-normal text-emerald-400">trusted</span><br/>care near you.</h3>
               <div className="bg-white/10 rounded-xl p-3 mb-4 flex items-center gap-2 border border-white/5">
