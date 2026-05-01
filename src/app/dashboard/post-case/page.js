@@ -4,12 +4,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle, Loader2, UploadCloud, FileText, MapPin } from 'lucide-react';
 
-// IMPORTING FIREBASE & LOCATIONS
+// IMPORTING FIREBASE
 import { auth, db, storage } from '@/lib/firebase'; 
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'; 
-import { nepalLocations, provinces } from '@/lib/nepalLocations'; // Make sure this path is correct for your app!
 
 export default function PostCareRequest() {
   const router = useRouter();
@@ -22,20 +21,18 @@ export default function PostCareRequest() {
   const [uploadingFile, setUploadingFile] = useState(false); 
   const [medicalFiles, setMedicalFiles] = useState([]); 
 
-  // 🚨 UPDATED FORM DATA STATE 🚨
+  // 🚨 NEW GLOBAL FORM DATA STATE 🚨
   const [formData, setFormData] = useState({
     careType: 'In-Home Care',
     roleNeeded: 'Registered Nurse (RN)',
-    province: '',
-    district: '',
-    city_zone: '',
-    address: '',
+    country: '',
+    state: '',
+    city: '',
+    zipCode: '',
+    street: '',
     urgency: 'This Week',
     details: ''
   });
-
-  const [availableDistricts, setAvailableDistricts] = useState([]);
-  const [availableZones, setAvailableZones] = useState([]);
 
   const careTypes = ['In-Home Care', 'Post-Surgical', 'Companionship', 'Facility Shift'];
   const urgencies = [
@@ -53,21 +50,16 @@ export default function PostCareRequest() {
           const data = docSnap.data();
           setUserData({ id: user.uid, ...data });
 
-          // AUTO-FILL LOCATION FROM PATIENT PROFILE
+          // AUTO-FILL NEW LOCATION FORMAT FROM PATIENT PROFILE
+          const loc = data.location || {};
           setFormData(prev => ({
             ...prev,
-            province: data.province || '',
-            district: data.district || '',
-            city_zone: data.city_zone || '',
-            address: data.address || ''
+            country: loc.country || '',
+            state: loc.state || '',
+            city: loc.city || '',
+            zipCode: loc.zipCode || '',
+            street: loc.street || ''
           }));
-
-          if (data.province && nepalLocations[data.province]) {
-            setAvailableDistricts(Object.keys(nepalLocations[data.province]));
-            if (data.district && nepalLocations[data.province][data.district]) {
-                setAvailableZones(nepalLocations[data.province][data.district]);
-            }
-          }
         }
         setPageLoading(false);
       } else {
@@ -77,26 +69,16 @@ export default function PostCareRequest() {
     return () => unsubscribe();
   }, [router]);
 
-  // LOCATION HANDLERS
-  const handleProvinceChange = (e) => {
-    const newProv = e.target.value;
-    setFormData({ ...formData, province: newProv, district: '', city_zone: '' });
-    setAvailableDistricts(newProv ? Object.keys(nepalLocations[newProv]) : []);
-    setAvailableZones([]);
-  };
-
-  const handleDistrictChange = (e) => {
-    const newDist = e.target.value;
-    setFormData({ ...formData, district: newDist, city_zone: '' });
-    setAvailableZones((formData.province && newDist) ? nepalLocations[formData.province][newDist] : []);
-  };
-
   // 2. CAPTURE MULTIPLE FILES 
   const handleFileChange = (e) => {
     if (e.target.files) {
       const selectedFiles = Array.from(e.target.files);
       setMedicalFiles(selectedFiles);
     }
+  };
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   // 3. THE REAL FIREBASE SUBMIT FUNCTION
@@ -124,12 +106,19 @@ export default function PostCareRequest() {
         setUploadingFile(false);
       }
 
-      // Create a combined string for the UI display, but save individual fields for strict matching!
-      const combinedLocationDisplay = `${formData.city_zone}, ${formData.district}`;
+      // Format location specifically for querying before saving
+      const { country, state, city, zipCode, street, ...restData } = formData;
 
       await addDoc(collection(db, "care_requests"), {
-        ...formData,
-        location: combinedLocationDisplay, // Used for displaying on the Nurse Dashboard cards
+        ...restData,
+        // Save as a structured object just like in the user profiles
+        location: {
+          country: country?.toLowerCase().trim() || '',
+          state: state?.trim() || '',
+          city: city?.toLowerCase().trim() || '',
+          zipCode: zipCode?.trim() || '',
+          street: street?.trim() || ''
+        },
         patientId: userData.id, 
         patientName: userData.name || userData.full_name || "Patient",
         patientPhoto: userData.photoURL || userData.avatar_url || "",
@@ -236,39 +225,35 @@ export default function PostCareRequest() {
               </select>
             </div>
 
-            {/* 🚨 UPDATED LOCATION GRID 🚨 */}
+            {/* 🚨 NEW GLOBAL LOCATION GRID 🚨 */}
             <div className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100 space-y-4">
               <label className="text-sm font-black text-gray-900 flex items-center mb-4"><MapPin className="w-5 h-5 mr-2 text-emerald-600"/> Care Location</label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Province *</label>
-                  <select name="province" value={formData.province} onChange={handleProvinceChange} className={inputClass} required>
-                      <option value="">Select Province</option>
-                      {provinces.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">District *</label>
-                  <select name="district" value={formData.district} onChange={handleDistrictChange} className={inputClass} required disabled={!formData.province}>
-                      <option value="">Select District</option>
-                      {availableDistricts.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">City / Zone *</label>
-                  {availableZones.length > 0 ? (
-                      <select name="city_zone" value={formData.city_zone} onChange={(e) => setFormData({...formData, city_zone: e.target.value})} className={inputClass} required disabled={!formData.district}>
-                          <option value="">Select City/Zone</option>
-                          {availableZones.map(z => <option key={z} value={z}>{z}</option>)}
-                      </select>
-                  ) : (
-                      <input type="text" name="city_zone" value={formData.city_zone} onChange={(e) => setFormData({...formData, city_zone: e.target.value})} className={inputClass} placeholder="City name" required disabled={!formData.district}/>
-                  )}
-                </div>
-                <div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                  <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Country *</label>
+                      <input required name="country" value={formData.country} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Nepal" />
+                  </div>
+                  <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">State / Province *</label>
+                      <input required name="state" value={formData.state} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Madhesh" />
+                  </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                  <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">City *</label>
+                      <input required name="city" value={formData.city} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Janakpur" />
+                  </div>
+                  <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Zip / Postal Code *</label>
+                      <input required name="zipCode" value={formData.zipCode} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. 45600" />
+                  </div>
+              </div>
+
+              <div>
                   <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Street Address *</label>
-                  <input type="text" name="address" value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} className={inputClass} placeholder="e.g. Bhanu Chowk" required />
-                </div>
+                  <input required name="street" value={formData.street} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Station Road, Ward 1" />
               </div>
             </div>
 

@@ -1,5 +1,5 @@
 // src/app/sitemap.js
-
+export const dynamic = "force-static";
 export default function sitemap() {
   const baseUrl = 'https://www.usesafe.com';
 

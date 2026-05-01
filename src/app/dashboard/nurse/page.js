@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
-  doc, getDoc, collection, query, onSnapshot, updateDoc, addDoc, serverTimestamp 
+  doc, getDoc, collection, query, onSnapshot, updateDoc, addDoc, serverTimestamp, where, or 
 } from 'firebase/firestore';
 import { 
   LayoutDashboard, UserCircle, Briefcase, Bell, 
   MapPin, Loader2, CheckCircle, Clock, FileText, ChevronRight, 
-  Activity, Edit3, Inbox, AlertCircle,
+  Activity, Inbox, AlertCircle,
   MessageSquare, Calendar, ToggleLeft, ToggleRight, XCircle, ShieldCheck, Star,
   ExternalLink, HeartPulse
 } from 'lucide-react';
@@ -61,12 +61,7 @@ export default function NurseSaaSDashboard() {
   const [pageLoading, setPageLoading] = useState(true);
   const [decliningId, setDecliningId] = useState(null);
 
-  // Quick Edit State
-  const [quickEdit, setQuickEdit] = useState({ specialty: '', hourlyRate: '', bio: '' });
-  const [savingEdit, setSavingEdit] = useState(false);
-  const [editMessage, setEditMessage] = useState(null);
-
-  /// Availability State (Correctly spelled)
+  // Availability State
   const [schedule, setSchedule] = useState({
     Monday: true, 
     Tuesday: true, 
@@ -109,55 +104,71 @@ export default function NurseSaaSDashboard() {
         }
         
         setUserData(data);
-        
-        setQuickEdit({
-          specialty: data.specialty || data.role || 'Registered Nurse (RN)',
-          hourlyRate: data.hourlyRate || '',
-          bio: data.bio || ''
-        });
 
         if (data.availabilitySchedule) {
           setSchedule(data.availabilitySchedule);
         }
 
-        // 🚀 THE FIX: UNBLOCK THE UI IMMEDIATELY! 🚀
-        // We know who the nurse is, so drop the loading screen right now.
         setPageLoading(false);
 
-        // START LIVE LISTENER (Loads silently in the background)
-        const q = query(collection(db, "care_requests"));
-        const unsubscribeJobs = onSnapshot(q, (snapshot) => {
-          const allRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // 🚨 INTELLIGENT LOCATION MATCHING (Zip Code OR City) 🚨
+        const pLoc = data.location || {};
+        const safeCountry = (pLoc.country || '').toLowerCase();
+        const safeCity = (pLoc.city || '').toLowerCase();
+        const safeZip = (pLoc.zipCode || '').trim();
 
-          // STRICT DISTRICT MATCHING
-          const available = allRequests.filter(req => {
-            if (req.status !== 'searching') return false;
-            const jobDistrict = (req.district || '').toLowerCase();
-            const nurseDistrict = (data.district || '').toLowerCase();
-            return nurseDistrict !== '' && jobDistrict !== '' && jobDistrict === nurseDistrict;
+        let unsubAvailable = () => {};
+        
+        // QUERY 1: ONLY FETCH JOBS IN THEIR CITY OR ZIP CODE
+        if (safeCity || safeZip) {
+          const locQuery = query(
+            collection(db, "care_requests"),
+            or(
+              where("location.zipCode", "==", safeZip || "NO_ZIP"),
+              where("location.city", "==", safeCity || "NO_CITY")
+            )
+          );
+          
+          unsubAvailable = onSnapshot(locQuery, (snapshot) => {
+            const locJobs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            // Client-side filter for 'searching' status and exact country match
+            const validAvailable = locJobs.filter(req => 
+              req.status === 'searching' && 
+              (req.location?.country || '').toLowerCase() === safeCountry
+            );
+            
+            setAvailableJobs(validAvailable);
           });
-          
-          const accepted = allRequests.filter(req => 
-            (req.status === 'matched' || req.status === 'completed') && 
-            req.nurseId === currentUser.uid
-          );
+        }
 
-          const invites = allRequests.filter(req => 
-            req.status === 'direct_request' && 
-            req.targetNurseId === currentUser.uid
-          );
-
-          setAvailableJobs(available);
-          setMyJobs(accepted);
-          setDirectInvites(invites); 
-          
-          // Removed setPageLoading(false) from here so it doesn't bottleneck!
+        // QUERY 2: FETCH ONLY JOBS THEY ACCEPTED
+        const myJobsQuery = query(
+          collection(db, "care_requests"),
+          where("nurseId", "==", currentUser.uid)
+        );
+        const unsubMyJobs = onSnapshot(myJobsQuery, (snapshot) => {
+          setMyJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
-        return () => unsubscribeJobs();
+        // QUERY 3: FETCH ONLY DIRECT INVITES TO THEM
+        const invitesQuery = query(
+          collection(db, "care_requests"),
+          where("targetNurseId", "==", currentUser.uid)
+        );
+        const unsubInvites = onSnapshot(invitesQuery, (snapshot) => {
+          const invites = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          setDirectInvites(invites.filter(req => req.status === 'direct_request'));
+        });
+
+        return () => { 
+          unsubAvailable(); 
+          unsubMyJobs(); 
+          unsubInvites(); 
+        };
 
       } else {
-        router.push('/profile?setup=true'); // Ensure this routes to your actual profile setup!
+        router.push('/profile?setup=true'); 
       }
     });
 
@@ -199,8 +210,6 @@ export default function NurseSaaSDashboard() {
   // 2. LIVE DATABASE ACTIONS
   // ==========================================
   
-  // NOTE: handleAcceptJob was removed entirely! Acceptance happens strictly in the Case Room now.
-  
   const handleCompleteJobClick = (jobId) => {
     setConfirmModal({ isOpen: true, jobId });
   };
@@ -221,7 +230,7 @@ export default function NurseSaaSDashboard() {
     }
   };
 
-  // We keep decline here so nurses can clear their inbox without opening the room
+  // Decline Direct Invite
   const handleDeclineInvite = async (jobId) => {
     setDecliningId(jobId);
     try {
@@ -234,21 +243,6 @@ export default function NurseSaaSDashboard() {
       console.error("Error declining job:", error);
     } finally {
       setDecliningId(null);
-    }
-  };
-
-  const handleQuickEditSave = async (e) => {
-    e.preventDefault();
-    setSavingEdit(true); setEditMessage(null);
-    try {
-      await updateDoc(doc(db, 'users', userAuth.uid), quickEdit);
-      setUserData(prev => ({ ...prev, ...quickEdit }));
-      setEditMessage("Saved securely!");
-      setTimeout(() => setEditMessage(null), 3000);
-    } catch (error) {
-      setEditMessage("Error saving.");
-    } finally {
-      setSavingEdit(false);
     }
   };
 
@@ -268,35 +262,24 @@ export default function NurseSaaSDashboard() {
   if (pageLoading || !userData) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a271f] overflow-hidden">
-        {/* Background ambient glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-600/20 rounded-full blur-[100px]"></div>
-
         <div className="relative z-10 flex flex-col items-center animate-in fade-in duration-700">
-          {/* Logo Icon with Pulse Animation */}
           <div className="relative mb-6">
             <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-20"></div>
             <div className="bg-emerald-900/50 p-4 rounded-full border border-emerald-700/50 backdrop-blur-sm relative z-10">
               <HeartPulse className="w-12 h-12 text-emerald-400" strokeWidth={1.5} />
             </div>
           </div>
-
-          {/* Brand Name */}
           <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
             Safe Home<span className="text-emerald-500">.</span>
           </h1>
-
-          {/* Tagline */}
           <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
             Securely Loading Dashboard...
           </p>
-
-          {/* Minimalist Loading Bar */}
           <div className="w-48 h-1 bg-emerald-950 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500 rounded-full w-1/2 animate-[shimmer_1.5s_infinite_ease-in-out] origin-left"></div>
           </div>
         </div>
-
-        {/* Custom Keyframes for the loading bar */}
         <style jsx>{`
           @keyframes shimmer {
             0% { transform: translateX(-100%); }
@@ -310,6 +293,11 @@ export default function NurseSaaSDashboard() {
   const displayName = userData.name || userData.full_name || "Provider";
   const displayPhoto = userData.photoURL || userData.avatar_url || null;
   const displayRole = userData.specialty || userData.role || "Care Provider";
+  
+  // Safe location display for sidebar
+  const displayLocation = userData.location?.city 
+    ? `${userData.location.city}, ${userData.location.zipCode}` 
+    : 'Location not set';
 
   let profileScore = 0;
   if (displayName) profileScore += 25;
@@ -347,7 +335,10 @@ export default function NurseSaaSDashboard() {
               
               <div>
                 <h3 className="text-xl font-black text-gray-900 mt-2">{job.roleNeeded}</h3>
-                <p className="text-gray-500 text-sm mt-1 flex items-center"><MapPin className="w-4 h-4 mr-1"/> {job.location} • {job.careType}</p>
+                <p className="text-gray-500 text-sm mt-1 flex items-center capitalize">
+                  <MapPin className="w-4 h-4 mr-1"/> 
+                  {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'} • {job.careType}
+                </p>
                 
                 <div className="mt-4 flex items-center bg-gray-50 p-3 rounded-lg w-fit">
                   <div className="w-8 h-8 rounded-full bg-blue-100 overflow-hidden flex items-center justify-center mr-3">
@@ -506,51 +497,20 @@ export default function NurseSaaSDashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                    <div><h3 className="font-bold text-gray-900">Quick Profile Edit</h3><p className="text-xs text-gray-500">Update your key details</p></div>
-                    <Edit3 className="w-5 h-5 text-gray-400" />
-                  </div>
-                  <form onSubmit={handleQuickEditSave} className="p-5 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Care Role</label>
-                          <select value={quickEdit.specialty} onChange={(e) => setQuickEdit({...quickEdit, specialty: e.target.value})} className="w-full p-2.5 rounded-lg border border-gray-200 outline-none text-sm font-medium">
-                              <option value="Registered Nurse (RN)">Registered Nurse (RN)</option>
-                              <option value="Licensed Practical Nurse (LPN)">Licensed Practical Nurse (LPN)</option>
-                              <option value="Certified Nursing Assistant (CNA)">Certified Nursing Assistant (CNA)</option>
-                              <option value="Caregiver">Caregiver</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Hourly Rate (NPR)</label>
-                          <input type="number" required value={quickEdit.hourlyRate} onChange={(e) => setQuickEdit({...quickEdit, hourlyRate: e.target.value})} className="w-full p-2.5 rounded-lg border border-gray-200 outline-none text-sm font-medium" placeholder="e.g. 1500" />
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Professional Bio</label>
-                          <textarea required value={quickEdit.bio} onChange={(e) => setQuickEdit({...quickEdit, bio: e.target.value})} className="w-full p-2.5 rounded-lg border border-gray-200 outline-none text-sm font-medium min-h-[80px]" placeholder="Briefly describe your experience..."></textarea>
-                        </div>
-                    </div>
-                    <div className="flex justify-between items-center pt-2">
-                        <span className="text-sm font-bold text-emerald-600">{editMessage}</span>
-                        <button type="submit" disabled={savingEdit} className="bg-gray-900 text-white px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-gray-800 transition flex items-center">
-                          {savingEdit ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : "Save Changes"}
-                        </button>
-                    </div>
-                  </form>
-              </div>
 
               {/* LOCATION FILTERED PUBLIC JOB BOARD */}
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="px-6 py-5 border-b border-gray-50 flex justify-between items-center bg-[#fdfcf9]">
-                  <h3 className="font-bold text-gray-900 flex items-center">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></span> Available Jobs Near You
+                  <h3 className="font-bold text-gray-900 flex items-center capitalize">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></span> 
+                    Available Jobs in {userData.location?.city || 'Your Area'}
                   </h3>
                 </div>
                 <div className="p-6">
                   {availableJobs.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500 text-sm font-medium">No general requests in your area right now.</div>
+                    <div className="py-8 text-center text-gray-500 text-sm font-medium capitalize">
+                      No general requests in {userData.location?.city || 'your area'} right now.
+                    </div>
                   ) : (
                     <div className="space-y-4">
                       {availableJobs.map((job) => (
@@ -561,7 +521,9 @@ export default function NurseSaaSDashboard() {
                               <span className="text-xs font-bold text-gray-500">{job.careType}</span>
                             </div>
                             <h4 className="font-black text-gray-900 leading-tight mb-1">{job.roleNeeded}</h4>
-                            <p className="text-xs text-gray-500 font-medium truncate">{job.location} • {job.details}</p>
+                            <p className="text-xs text-gray-500 font-medium truncate capitalize">
+                              {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'} • {job.details}
+                            </p>
                           </div>
                           <button 
                             onClick={() => router.push(`/cases/${job.id}`)} 
@@ -672,14 +634,13 @@ export default function NurseSaaSDashboard() {
   // RENDER: MY DOCUMENTS TAB
   // ==========================================
   const renderDocuments = () => {
-    // Collect all the specific document URLs from the user's data
     const myDocs = [
       { name: "Curriculum Vitae (CV)", url: userData.cv_url },
       { name: "Professional License", url: userData.license_url },
       { name: "SLC Certificate", url: userData.cert_slc_url },
       { name: "+2 Certificate", url: userData.cert_plus2_url },
       { name: "Bachelor's Degree", url: userData.cert_bachelor_url }
-    ].filter(doc => doc.url); // This cleanly removes any documents they haven't uploaded
+    ].filter(doc => doc.url); 
 
     return (
       <div className="animate-in fade-in duration-300 max-w-5xl">
@@ -772,7 +733,7 @@ export default function NurseSaaSDashboard() {
                   </div>
 
                   <p className="text-sm text-gray-600 font-medium mb-1"><span className="font-bold">Role:</span> {job.roleNeeded}</p>
-                  <p className="text-sm text-gray-600 font-medium mb-6"><span className="font-bold">Location:</span> {job.location}</p>
+                  <p className="text-sm text-gray-600 font-medium mb-6 capitalize"><span className="font-bold">Location:</span> {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'}</p>
 
                   <button 
                     onClick={() => router.push(`/cases/${job.id}`)}
@@ -805,7 +766,7 @@ export default function NurseSaaSDashboard() {
                       Shift Completed
                     </span>
                     <h3 className="text-lg font-black text-gray-900">{job.patientName}</h3>
-                    <p className="text-gray-500 text-xs font-medium">{job.roleNeeded} • {job.location}</p>
+                    <p className="text-gray-500 text-xs font-medium capitalize">{job.roleNeeded} • {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'}</p>
                   </div>
                   
                   {job.isReviewed ? (
@@ -828,7 +789,6 @@ export default function NurseSaaSDashboard() {
   };
 
 const renderAvailability = () => {
-    // Define the exact order you want the days to appear in the UI
     const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
     return (
@@ -846,7 +806,6 @@ const renderAvailability = () => {
 
           <div className="space-y-3">
             {dayOrder.map((day) => {
-              // Get the current boolean value for the day (default to false if not found)
               const isAvailable = schedule[day] || false; 
 
               return (
@@ -855,7 +814,6 @@ const renderAvailability = () => {
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${isAvailable ? 'bg-emerald-600 text-white shadow-md' : 'bg-gray-200 text-gray-500'}`}>
                       {day.charAt(0)}
                     </div>
-                    {/* Just print the day variable directly, don't append "day" manually */}
                     <span className={`font-bold ${isAvailable ? 'text-gray-900' : 'text-gray-400'}`}>{day}</span> 
                   </div>
                   <div className="text-gray-400">
@@ -891,7 +849,7 @@ const renderAvailability = () => {
                   className={`w-full text-left p-4 rounded-xl transition ${activeChatId === chat.id ? 'bg-emerald-100 border-emerald-200' : 'bg-white border-transparent hover:bg-emerald-50'} border shadow-sm`}
                 >
                   <p className="font-bold text-gray-900 truncate">{chat.patientName || 'Patient'}</p>
-                  <p className="text-xs text-gray-500 truncate">{chat.roleNeeded} • {chat.location}</p>
+                  <p className="text-xs text-gray-500 truncate capitalize">{chat.roleNeeded} • {chat.location?.city ? `${chat.location.city}` : 'Local'}</p>
                 </button>
               ))
             )}
@@ -966,6 +924,9 @@ const renderAvailability = () => {
               </h3>
               <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider truncate w-32">{displayRole}</p>
             </div>
+          </div>
+          <div className="flex items-center text-xs font-bold text-gray-500 bg-gray-50 p-2 rounded-lg capitalize">
+            <MapPin className="w-3 h-3 mr-1 text-gray-400" /> {displayLocation}
           </div>
         </div>
         

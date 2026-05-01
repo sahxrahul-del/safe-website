@@ -9,7 +9,6 @@ import {
   GraduationCap, Briefcase, DollarSign, Activity, AlertTriangle,
   ArrowLeft
 } from 'lucide-react';
-import { nepalLocations, provinces } from '../../lib/nepalLocations';
 import { auth, db, storage } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -32,7 +31,9 @@ export default function Profile() {
   const [formData, setFormData] = useState({
     id: '', email: '', full_name: '', phone: '', role: urlRole || 'patient', 
     avatar_url: '/default-avatar.png',
-    province: '', district: '', city_zone: '', address: '',
+    
+    // NEW: Global Location Fields
+    country: '', state: '', city: '', zipCode: '', street: '',
     
     // Nurse Specific
     licenseNumber: '', specialty: '', experience: '', hourlyRate: '', bio: '', cv_url: '',license_url: '',
@@ -45,9 +46,6 @@ export default function Profile() {
     careRecipient: 'Self', allergies: '', mobility: '', 
     medications: '', careNeeds: ''
   });
-
-  const [availableDistricts, setAvailableDistricts] = useState([]);
-  const [availableZones, setAvailableZones] = useState([]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -63,8 +61,8 @@ export default function Profile() {
         let profile = {};
         if (docSnap.exists()) profile = docSnap.data();
 
-        const currentProvince = profile.province || '';
-        const currentDistrict = profile.district || '';
+        // Safely extract the nested location object (or default to empty strings)
+        const loc = profile.location || {};
         
         setFormData(prev => ({
           ...prev,
@@ -75,8 +73,12 @@ export default function Profile() {
           phone: profile.phone || '', 
           role: profile.role || urlRole || 'patient',
           
-          province: currentProvince, district: currentDistrict, 
-          city_zone: profile.city_zone || '', address: profile.address || '',
+          // Populate the location fields
+          country: loc.country || '', 
+          state: loc.state || '', 
+          city: loc.city || '', 
+          zipCode: loc.zipCode || '', 
+          street: loc.street || '',
           
           licenseNumber: profile.licenseNumber || '', specialty: profile.specialty || '',
           experience: profile.experience || '', hourlyRate: profile.hourlyRate || '', 
@@ -93,12 +95,6 @@ export default function Profile() {
           medications: profile.medications || '', careNeeds: profile.careNeeds || ''
         }));
 
-        if (currentProvince && nepalLocations[currentProvince]) {
-          setAvailableDistricts(Object.keys(nepalLocations[currentProvince]));
-          if (currentDistrict && nepalLocations[currentProvince][currentDistrict]) {
-              setAvailableZones(nepalLocations[currentProvince][currentDistrict]);
-          }
-        }
       } catch (error) {
         console.error(error);
       } finally { setLoading(false); }
@@ -108,19 +104,6 @@ export default function Profile() {
   }, [router, urlRole]);
 
   const handleChange = (e) => { setFormData({ ...formData, [e.target.name]: e.target.value }); setMessage(null); };
-
-  const handleProvinceChange = (e) => {
-    const newProv = e.target.value;
-    setFormData({ ...formData, province: newProv, district: '', city_zone: '' });
-    setAvailableDistricts(newProv ? Object.keys(nepalLocations[newProv]) : []);
-    setAvailableZones([]);
-  };
-
-  const handleDistrictChange = (e) => {
-    const newDist = e.target.value;
-    setFormData({ ...formData, district: newDist, city_zone: '' });
-    setAvailableZones((formData.province && newDist) ? nepalLocations[formData.province][newDist] : []);
-  };
 
   const handleFileUpload = async (e, type, urlField) => {
     const file = e.target.files[0];
@@ -156,14 +139,15 @@ export default function Profile() {
     setMessage(null);
 
     // ==========================================
-    // 1. NEPAL PHONE VALIDATION GUARD
+    // 1. PHONE VALIDATION GUARD
     // ==========================================
     if (formData.phone) {
-      const phoneRegex = /^\d{10}$/;
-      if (!phoneRegex.test(formData.phone)) {
-        setMessage({ type: 'error', text: "Please enter a valid 10-digit mobile number." });
+      // Basic check for at least 10 digits (can be modified for international later)
+      const phoneRegex = /^\d{10,}$/;
+      if (!phoneRegex.test(formData.phone.replace(/[^0-9]/g, ''))) {
+        setMessage({ type: 'error', text: "Please enter a valid mobile number." });
         setSaving(false);
-        return; // Stops the function from saving bad data!
+        return; 
       }
     }
 
@@ -171,21 +155,31 @@ export default function Profile() {
     // 2. FIREBASE DATABASE SAVE
     // ==========================================
     try {
-      const payload = { ...formData, updated_at: new Date() };
+      // Destructure out the flat location fields so we don't save them at the root level
+      const { country, state, city, zipCode, street, ...restData } = formData;
+      
+      const payload = { 
+        ...restData, 
+        // Build the nested, formatted location object
+        location: {
+          country: country?.toLowerCase().trim() || '',
+          state: state?.trim() || '',
+          city: city?.toLowerCase().trim() || '',
+          zipCode: zipCode?.trim() || '',
+          street: street?.trim() || ''
+        },
+        updated_at: new Date() 
+      };
       
       await setDoc(doc(db, 'users', auth.currentUser.uid), payload, { merge: true });
       
       setMessage({ type: 'success', text: "Profile updated successfully!" });
       
       setTimeout(() => {
-        // Routes cleanly to /admin if they are an admin
         router.push(formData.role === 'admin' ? '/admin' : `/dashboard/${formData.role === 'nurse' ? 'nurse' : 'patient'}`);
       }, 1500);
 
     } catch (error) {
-      // ==========================================
-      // 3. THE ERROR TRANSLATOR IN ACTION
-      // ==========================================
       setMessage({ type: 'error', text: translateFirebaseError(error) });
     } finally {
       setSaving(false);
@@ -234,7 +228,6 @@ export default function Profile() {
         
         <div className="mb-8">
           <button 
-            // 🚨 Returns Admins smoothly back to /admin
             onClick={() => router.push(isAdmin ? '/admin' : `/dashboard/${formData.role === 'nurse' ? 'nurse' : 'patient'}`)} 
             className="inline-flex items-center text-gray-600 hover:text-emerald-800 transition font-bold bg-white px-5 py-2.5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md"
           >
@@ -258,7 +251,7 @@ export default function Profile() {
 
         <form onSubmit={handleSubmit} className="space-y-8">
           
-          {/* CARD 1: IDENTITY (Visible to Everyone) */}
+          {/* CARD 1: IDENTITY */}
           <div className={cardClass}>
             <div className="flex flex-col sm:flex-row items-center gap-8 border-b border-gray-100 pb-8 mb-8">
               <div className="relative group shrink-0">
@@ -282,7 +275,6 @@ export default function Profile() {
                   </label>
               </div>
               <div className="flex-1 w-full text-center sm:text-left">
-                  {/* 🚨 DYNAMIC BADGE LOGIC FOR ADMINS */}
                   <span className={`text-xs font-bold uppercase tracking-wider inline-flex items-center px-3 py-1 rounded-full mb-3 ${isAdmin ? 'bg-purple-50 text-purple-700 border border-purple-100' : (isNurse ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700')}`}>
                       {isAdmin ? <ShieldCheck className="w-3 h-3 mr-1.5"/> : (isNurse ? <HeartPulse className="w-3 h-3 mr-1.5"/> : <User className="w-3 h-3 mr-1.5"/>)} 
                       {isAdmin ? 'System Admin' : (isNurse ? 'Care Provider' : 'Patient Account')}
@@ -302,44 +294,38 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* 🚨 HIDDEN FOR ADMINS: Everything Below */}
+          {/* 🚨 HIDDEN FOR ADMINS */}
           {!isAdmin && (
             <>
-              {/* CARD 2: LOCATION */}
+              {/* CARD 2: NEW GLOBAL LOCATION */}
               <div className={cardClass}>
                   <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center"><MapPin className="w-5 h-5 mr-2 text-gray-400" /> Location Details</h3>
+                  
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                       <div>
-                        <label className={labelClass}>Province *</label>
-                        <select name="province" value={formData.province} onChange={handleProvinceChange} className={inputClass} required>
-                            <option value="">Select Province</option>
-                            {provinces.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
+                          <label className={labelClass}>Country *</label>
+                          <input required name="country" value={formData.country} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Nepal" />
                       </div>
                       <div>
-                        <label className={labelClass}>District *</label>
-                        <select name="district" value={formData.district} onChange={handleDistrictChange} className={inputClass} required disabled={!formData.province}>
-                            <option value="">Select District</option>
-                            {availableDistricts.map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
+                          <label className={labelClass}>State / Province *</label>
+                          <input required name="state" value={formData.state} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Madhesh" />
                       </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                       <div>
-                        <label className={labelClass}>City / Zone *</label>
-                        {availableZones.length > 0 ? (
-                            <select name="city_zone" value={formData.city_zone} onChange={handleChange} className={inputClass} required disabled={!formData.district}>
-                                <option value="">Select City/Zone</option>
-                                {availableZones.map(z => <option key={z} value={z}>{z}</option>)}
-                            </select>
-                        ) : (
-                            <input type="text" name="city_zone" value={formData.city_zone} onChange={handleChange} className={inputClass} placeholder="City name" required disabled={!formData.district}/>
-                        )}
+                          <label className={labelClass}>City *</label>
+                          <input required name="city" value={formData.city} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Janakpur" />
                       </div>
                       <div>
-                        <label className={labelClass}>Street Address *</label>
-                        <input type="text" name="address" value={formData.address} onChange={handleChange} className={inputClass} placeholder="e.g. Bhanu Chowk, Ward 4" required />
+                          <label className={labelClass}>Zip / Postal Code *</label>
+                          <input required name="zipCode" value={formData.zipCode} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. 45600" />
                       </div>
+                  </div>
+
+                  <div>
+                      <label className={labelClass}>Street Address *</label>
+                      <input required name="street" value={formData.street} onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Station Road, Ward 1" />
                   </div>
               </div>
 
@@ -378,7 +364,6 @@ export default function Profile() {
                         </div>
                     </div>
 
-                    {/* NEW: EDUCATION & CERTIFICATES */}
                     <div className={cardClass}>
                         <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center"><GraduationCap className="w-5 h-5 mr-2 text-gray-400" /> Education & Certificates</h3>
                         

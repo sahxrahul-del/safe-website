@@ -93,7 +93,6 @@ export default function AdminDashboard() {
           router.push('/login');
         }
       } catch (error) {
-        // This catch block prevents the infinite loading glitch!
         console.error("Authentication Error:", error);
         setLoading(false);
         router.push('/login');
@@ -312,7 +311,7 @@ export default function AdminDashboard() {
               <div key={job.id} className="p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition flex justify-between items-center">
                  <div>
                     <h4 className="font-bold text-sm text-gray-900">{job.roleNeeded}</h4>
-                    <p className="text-xs text-gray-500">{job.location} • {job.careType}</p>
+                    <p className="text-xs text-gray-500 capitalize">{job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'} • {job.careType}</p>
                  </div>
                  <span className={`text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider ${job.status === 'searching' ? 'bg-amber-50 text-amber-600' : (job.status === 'completed' ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-600')}`}>{job.status}</span>
               </div>
@@ -385,7 +384,9 @@ export default function AdminDashboard() {
                       <p className="text-sm text-gray-800">{nurse.phone || '-'}</p>
                       <p className="text-xs text-gray-500">{nurse.email}</p>
                     </td>
-                    <td className="p-5 text-sm text-gray-600 font-medium">{nurse.district || nurse.location || '-'}</td>
+                    <td className="p-5 text-sm text-gray-600 font-medium capitalize">
+                      {nurse.location?.city ? `${nurse.location.city}, ${nurse.location.zipCode}` : 'Not set'}
+                    </td>
                     <td className="p-5 text-right pr-6">
                       <button onClick={() => setViewProvider(nurse)} className="inline-flex items-center px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-bold text-sm hover:border-emerald-300 hover:text-emerald-700 transition shadow-sm">
                         <Eye className="w-4 h-4 mr-2"/> Review
@@ -430,7 +431,9 @@ export default function AdminDashboard() {
                       <p className="text-sm text-gray-900">{patient.phone || 'No phone'}</p>
                       <p className="text-xs text-gray-500">{patient.email}</p>
                     </td>
-                    <td className="p-5 text-sm text-gray-600">{patient.city_zone || patient.district || '-'}</td>
+                    <td className="p-5 text-sm text-gray-600 capitalize">
+                      {patient.location?.city ? `${patient.location.city}, ${patient.location.zipCode}` : 'Not set'}
+                    </td>
                     <td className="p-5">
                       <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest bg-blue-50 text-blue-700">
                         {patient.careRecipient || 'Self'}
@@ -475,7 +478,9 @@ export default function AdminDashboard() {
                       <p className="font-bold text-gray-900">{job.roleNeeded}</p>
                       <p className="text-xs text-gray-500">{job.careType}</p>
                     </td>
-                    <td className="p-5 text-sm text-gray-600">{job.location || '-'}</td>
+                    <td className="p-5 text-sm text-gray-600 capitalize">
+                      {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'}
+                    </td>
                     <td className="p-5 text-sm font-bold text-gray-700">{job.urgency || '-'}</td>
                     <td className="p-5">
                       <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${job.status === 'searching' ? 'bg-amber-50 text-amber-700' : (job.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700')}`}>
@@ -703,7 +708,7 @@ export default function AdminDashboard() {
                                 <div className="space-y-3 text-sm">
                                     <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Email</span> <span className="font-bold text-gray-900">{viewProvider.email || '-'}</span></p>
                                     <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Phone</span> <span className="font-bold text-gray-900">{viewProvider.phone || '-'}</span></p>
-                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">District</span> <span className="font-bold text-gray-900">{viewProvider.district || viewProvider.location || '-'}</span></p>
+                                    <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Location</span> <span className="font-bold text-gray-900 capitalize">{viewProvider.location?.city ? `${viewProvider.location.city}, ${viewProvider.location.zipCode}` : 'Not set'}</span></p>
                                     <p className="flex justify-between"><span className="text-gray-500 font-medium">Hourly Rate</span> <span className="font-bold text-emerald-700">Rs. {viewProvider.hourlyRate || 'Not Set'}</span></p>
                                 </div>
                             </div>
@@ -829,7 +834,7 @@ export default function AdminDashboard() {
                                     <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Care For</span> <span className="font-bold text-gray-900">{viewPatient.careRecipient || 'Self'}</span></p>
                                     <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Mobility</span> <span className="font-bold text-gray-900">{viewPatient.mobility || 'Not specified'}</span></p>
                                     <p className="flex justify-between border-b border-gray-50 pb-2"><span className="text-gray-500 font-medium">Phone</span> <span className="font-bold text-gray-900">{viewPatient.phone || '-'}</span></p>
-                                    <p className="flex justify-between"><span className="text-gray-500 font-medium">Location</span> <span className="font-bold text-gray-900">{viewPatient.district || '-'}</span></p>
+                                    <p className="flex justify-between"><span className="text-gray-500 font-medium">Location</span> <span className="font-bold text-gray-900 capitalize">{viewPatient.location?.city ? `${viewPatient.location.city}, ${viewPatient.location.zipCode}` : 'Not set'}</span></p>
                                 </div>
                             </div>
                             {viewPatient.emergencyName && (
@@ -855,7 +860,7 @@ export default function AdminDashboard() {
                                         <span className="text-xs font-bold text-gray-400">{job.urgency}</span>
                                     </div>
                                     <h4 className="font-black text-gray-900 text-lg mb-1">{job.roleNeeded}</h4>
-                                    <p className="text-sm text-gray-600 mb-3">{job.careType} • {job.location}</p>
+                                    <p className="text-sm text-gray-600 mb-3 capitalize">{job.careType} • {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'}</p>
                                     <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg mb-3">"{job.details}"</p>
                                     
                                     {job.medical_url && (

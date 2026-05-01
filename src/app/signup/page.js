@@ -8,7 +8,6 @@ import { ArrowLeft, AlertCircle, CheckCircle, Eye, EyeOff, MapPin, Loader2, User
 import { auth, db, googleProvider } from '../../lib/firebase';
 import { createUserWithEmailAndPassword, sendEmailVerification, signInWithPopup } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { nepalLocations, provinces } from '../../lib/nepalLocations';
 
 export default function Signup() {
   const router = useRouter();
@@ -22,25 +21,17 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [popupBlocked, setPopupBlocked] = useState(false);
 
-  const [availableDistricts, setAvailableDistricts] = useState([]);
-
-  // Added Nurse fields to the initial state
+  // Updated initial state with the new 5-tier location fields
   const [formData, setFormData] = useState({
     email: '', password: '', confirmPassword: '',
-    fullName: '', phone: '', province: '', district: '',
+    fullName: '', phone: '', 
+    country: '', state: '', city: '', zipCode: '', street: '',
     licenseNumber: '', specialty: ''
   });
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setErrorMessage('');
-  };
-
-  const handleProvinceChange = (e) => {
-    const newProvince = e.target.value;
-    setFormData({ ...formData, province: newProvince, district: '' });
-    const provinceData = nepalLocations[newProvince] || {};
-    setAvailableDistricts(Object.keys(provinceData));
   };
 
   // ==========================================
@@ -59,9 +50,11 @@ export default function Signup() {
             email: result.user.email,
             full_name: result.user.displayName,
             avatar_url: result.user.photoURL,
-            role: userType, // Powered purely by the UI Toggle
+            role: userType, 
             accountStatus: userType === 'nurse' ? 'pending' : 'approved',
             isVerified: false,
+            // Initialize empty location object to maintain DB schema consistency
+            location: { country: '', state: '', city: '', zipCode: '', street: '' },
             created_at: serverTimestamp()
           });
         }
@@ -97,15 +90,22 @@ export default function Signup() {
     try {
       const userCred = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       
-      // Write database record instantly with dynamic fields
+      // Write database record instantly with structured location object
       await setDoc(doc(db, 'users', userCred.user.uid), {
         email: formData.email,
         full_name: formData.fullName,
         phone: formData.phone,
-        province: formData.province,
-        district: formData.district,
-        role: userType,
         
+        // The new 5-tier location object (lowercase country/city for perfect querying)
+        location: {
+          country: formData.country.toLowerCase().trim(),
+          state: formData.state.trim(),
+          city: formData.city.toLowerCase().trim(),
+          zipCode: formData.zipCode.trim(),
+          street: formData.street.trim()
+        },
+
+        role: userType,
         // Save these ONLY if they are a nurse
         licenseNumber: userType === 'nurse' ? formData.licenseNumber : null,
         specialty: userType === 'nurse' ? formData.specialty : null,
@@ -156,7 +156,7 @@ export default function Signup() {
               <p className="text-gray-500 mt-3 text-lg">Select your account type to get started</p>
             </div>
 
-            {/* THE MASTER TOGGLE (WorkXNepal Style) */}
+            {/* THE MASTER TOGGLE */}
             <div className="grid grid-cols-2 gap-4 mb-8">
               <button 
                 onClick={() => setUserType('patient')} 
@@ -230,27 +230,39 @@ export default function Signup() {
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Full Name *</label><input required name="fullName" onChange={handleChange} type="text" className={inputClass} placeholder="Ram Bahadur" /></div>
-                    <div><label className={labelClass}>Phone *</label><input required name="phone" onChange={handleChange} type="tel" className={inputClass} placeholder="9800000000" /></div>
+                    <div><label className={labelClass}>Full Name *</label><input required name="fullName" onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Ram Bahadur" /></div>
+                    <div><label className={labelClass}>Phone *</label><input required name="phone" onChange={handleChange} type="tel" className={inputClass} placeholder="e.g. 9800000000" /></div>
                 </div>
 
+                {/* THE NEW GLOBAL LOCATION SYSTEM */}
                 <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
                     <h3 className="font-bold text-gray-800 flex items-center mb-4 text-sm uppercase tracking-wider"><MapPin className="w-4 h-4 mr-2 text-emerald-600"/> Your Location</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
-                            <label className={labelClass}>Province *</label>
-                            <select name="province" value={formData.province} onChange={handleProvinceChange} className={inputClass} required>
-                                <option value="">Select Province</option>
-                                {provinces.map(p => <option key={p} value={p}>{p}</option>)}
-                            </select>
+                            <label className={labelClass}>Country *</label>
+                            <input required name="country" onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Nepal" />
                         </div>
                         <div>
-                            <label className={labelClass}>District *</label>
-                            <select name="district" value={formData.district} onChange={handleChange} className={inputClass} required disabled={!formData.province}>
-                                <option value="">Select District</option>
-                                {availableDistricts.map(d => <option key={d} value={d}>{d}</option>)}
-                            </select>
+                            <label className={labelClass}>State / Province *</label>
+                            <input required name="state" onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Madhesh" />
                         </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label className={labelClass}>City *</label>
+                            <input required name="city" onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Janakpur" />
+                        </div>
+                        <div>
+                            <label className={labelClass}>Zip / Postal Code *</label>
+                            <input required name="zipCode" onChange={handleChange} type="text" className={inputClass} placeholder="e.g. 45600" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className={labelClass}>Street Address *</label>
+                        <input required name="street" onChange={handleChange} type="text" className={inputClass} placeholder="e.g. Station Road, Ward 1" />
                     </div>
                 </div>
 

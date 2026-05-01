@@ -1,18 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'firebasestorage.googleapis.com', // Allows Firebase Storage images
+        hostname: 'firebasestorage.googleapis.com', 
       },
       {
         protocol: 'https',
-        hostname: 'lh3.googleusercontent.com', // Allows Google Login profile pictures
+        hostname: 'lh3.googleusercontent.com', 
       },
       {
         protocol: 'https',
-        hostname: 'i.pravatar.cc', // Allows our Mega-Seeder fake placeholder faces
+        hostname: 'i.pravatar.cc', 
       }
     ],
   },

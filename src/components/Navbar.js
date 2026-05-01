@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
-import { Menu, X, Bell, ChevronDown, UserCircle, LogOut } from 'lucide-react';
+import { Menu, X, Bell, UserCircle, LogOut } from 'lucide-react';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -15,11 +15,11 @@ export default function Navbar() {
   // Authentication & Role State
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
-  const [avatarUrl, setAvatarUrl] = useState(null); // Dedicated state for the profile picture
+  const [avatarUrl, setAvatarUrl] = useState(null); 
   
   // UI State
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState(null); // 'patients', 'nurses', 'user', 'notifications'
+  const [activeDropdown, setActiveDropdown] = useState(null); 
   const [notifications, setNotifications] = useState([]);
 
   // 1. LISTEN FOR AUTH & ROLE
@@ -27,7 +27,6 @@ export default function Navbar() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
-        // Set fallback avatar from Google Auth if it exists
         if (currentUser.photoURL) setAvatarUrl(currentUser.photoURL);
 
         // Fetch User Database Role & Photo
@@ -36,7 +35,6 @@ export default function Navbar() {
           const data = pDoc.data();
           setUserData(data);
           
-          // Override with database photo if they uploaded a custom one
           if (data.photoURL || data.avatar_url) {
             setAvatarUrl(data.photoURL || data.avatar_url);
           }
@@ -50,28 +48,25 @@ export default function Navbar() {
             const q = query(collection(db, "care_requests"), where("targetNurseId", "==", currentUser.uid), where("status", "==", "direct_request"));
             onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
           }
-          }
-        } else {
-          setUser(null);
-          setUserData(null);
-          setAvatarUrl(null);
-          setNotifications([]);
         }
-      });
-      return () => unsubscribe();
-    }, []);
+      } else {
+        setUser(null);
+        setUserData(null);
+        setAvatarUrl(null);
+        setNotifications([]);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-    const handleLogout = async () => {
+  const handleLogout = async () => {
     try {
-      // 1. Log out of Firebase
       await signOut(auth);
 
-      // 2. 🚨 DESTROY THE COOKIES 🚨
-      // Setting the expiration date to 1970 forces the browser to delete them instantly
+      // 🚨 DESTROY THE COOKIES 🚨
       document.cookie = "isAuthenticated=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; Secure; SameSite=Lax";
       document.cookie = "userRole=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; Secure; SameSite=Lax";
 
-      // 3. Hard redirect back to the home page
       window.location.href = '/';
       
     } catch (error) {
@@ -79,23 +74,21 @@ export default function Navbar() {
     }
   };
 
-    const toggleDropdown = (menu) => {
-      setActiveDropdown(activeDropdown === menu ? null : menu);
-    };
+  const toggleDropdown = (menu) => {
+    setActiveDropdown(activeDropdown === menu ? null : menu);
+  };
 
-    // Determine Logo Link based on role
-    const logoLink = !user ? '/' : (userData?.role?.toLowerCase() === 'patient' || userData?.role?.toLowerCase() === 'family' ? '/dashboard/patient' : '/dashboard/nurse');
+  const logoLink = !user ? '/' : (userData?.role?.toLowerCase() === 'patient' || userData?.role?.toLowerCase() === 'family' ? '/dashboard/patient' : '/dashboard/nurse');
 
-    return (
-      // REMOVED: max-w limits. ADDED: w-full for edge-to-edge layout.
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 w-full">
-        <div className="w-full px-4 md:px-8">
+  return (
+    <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 w-full">
+      <div className="w-full px-4 md:px-8">
         <div className="flex justify-between items-center h-20">
           
           {/* LEFT: BRAND LOGO */}
           <div className="flex items-center shrink-0">
             <Link href={logoLink} className="text-2xl font-black text-emerald-700 font-serif tracking-tight">
-              Safe Home.
+              Safe
             </Link>
           </div>
 
@@ -104,33 +97,14 @@ export default function Navbar() {
             
             {/* --- GUEST VIEW (NOT LOGGED IN) --- */}
             {!user && (
-              <>
-                {/* For Patients Dropdown */}
-                <div className="relative">
-                  <button onClick={() => toggleDropdown('patients')} className="flex items-center text-gray-600 hover:text-emerald-700 font-bold transition">
-                    For Patients <ChevronDown className="w-4 h-4 ml-1" />
-                  </button>
-                  {activeDropdown === 'patients' && (
-                    <div className="absolute right-0 top-full mt-4 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                      <Link href="/login" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50">Patient Login</Link>
-                      <Link href="/signup" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">Sign Up as Patient</Link>
-                    </div>
-                  )}
-                </div>
-
-                {/* For Nurses Dropdown */}
-                <div className="relative">
-                  <button onClick={() => toggleDropdown('nurses')} className="flex items-center text-gray-600 hover:text-emerald-700 font-bold transition">
-                    For Nurses <ChevronDown className="w-4 h-4 ml-1" />
-                  </button>
-                  {activeDropdown === 'nurses' && (
-                    <div className="absolute right-0 top-full mt-4 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                      <Link href="/login" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50">Provider Login</Link>
-                      <Link href="/signup" onClick={() => setActiveDropdown(null)} className="block px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">Apply to be a Nurse</Link>
-                    </div>
-                  )}
-                </div>
-              </>
+              <div className="flex items-center gap-4">
+                <Link href="/login" className="text-gray-600 hover:text-emerald-700 font-bold transition px-4 py-2">
+                  Log In
+                </Link>
+                <Link href="/signup" className="bg-[#0a271f] text-white px-6 py-2.5 rounded-xl font-bold hover:bg-black transition shadow-sm text-sm">
+                  Sign Up
+                </Link>
+              </div>
             )}
 
             {/* --- LOGGED IN VIEW --- */}
@@ -140,7 +114,7 @@ export default function Navbar() {
                   Dashboard
                 </Link>
 
-                {/* PATIENT ONLY: Post Request Button (Placed BEFORE the bell and avatar) */}
+                {/* PATIENT ONLY: Post Request Button */}
                 {(userData.role?.toLowerCase() === 'patient' || userData.role?.toLowerCase() === 'family') && (
                   <Link href="/dashboard/post-case" className="px-5 py-2.5 bg-[#0a271f] text-white font-bold rounded-xl hover:bg-black transition shadow-sm text-sm">
                     Post Request
@@ -188,7 +162,7 @@ export default function Navbar() {
                   )}
                 </div>
 
-                {/* USER AVATAR MENU (Always Last) */}
+                {/* USER AVATAR MENU */}
                 <div className="relative pl-2 border-l border-gray-100">
                   <button onClick={() => toggleDropdown('user')} className="flex items-center gap-2 focus:outline-none hover:opacity-80 transition">
                     <div className="w-10 h-10 rounded-full bg-emerald-100 border-2 border-white shadow-sm flex items-center justify-center overflow-hidden text-emerald-700 font-bold">
@@ -235,18 +209,17 @@ export default function Navbar() {
           <div className="px-4 pt-2 pb-6 space-y-1">
             
             {!user ? (
-              <>
-                <p className="px-4 py-2 text-xs font-bold text-gray-400 uppercase tracking-widest mt-4">For Patients</p>
-                <Link href="/login" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-gray-900 hover:bg-gray-50 rounded-xl">Patient Login</Link>
-                <Link href="/signup" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-emerald-700 bg-emerald-50 rounded-xl">Sign Up as Patient</Link>
-                
-                <p className="px-4 py-2 text-xs font-bold text-gray-400 uppercase tracking-widest mt-6">For Nurses</p>
-                <Link href="/login" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-gray-900 hover:bg-gray-50 rounded-xl">Provider Login</Link>
-                <Link href="/signup" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-emerald-700 bg-emerald-50 rounded-xl">Apply to be a Nurse</Link>
-              </>
+              <div className="flex flex-col gap-2 mt-4">
+                <Link href="/login" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-gray-900 hover:bg-gray-50 rounded-xl text-center border border-gray-200">
+                  Log In
+                </Link>
+                <Link href="/signup" onClick={() => setIsMobileOpen(false)} className="block px-4 py-3 text-base font-bold text-white bg-[#0a271f] hover:bg-black rounded-xl text-center shadow-md">
+                  Sign Up
+                </Link>
+              </div>
             ) : (
               <>
-                <div className="flex items-center p-4 mb-4 bg-gray-50 rounded-xl">
+                <div className="flex items-center p-4 mb-4 bg-gray-50 rounded-xl mt-4">
                   <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold mr-3 overflow-hidden shadow-sm border-2 border-white">
                     {avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover"/> : (userData?.name || "U").charAt(0)}
                   </div>

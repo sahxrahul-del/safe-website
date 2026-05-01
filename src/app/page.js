@@ -2,43 +2,59 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // Added for splash screen redirect
 import NurseCard from "@/components/NurseCard";
 import { db } from '@/lib/firebase';
 import { collection, query, where, limit, getDocs } from 'firebase/firestore';
-import { Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { ShieldCheck } from 'lucide-react'; // Added for splash screen icon
+import { Capacitor } from '@capacitor/core'; // Added for mobile detection
 
 export default function Home() {
+  const router = useRouter();
   const [featuredNurses, setFeaturedNurses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isNativeApp, setIsNativeApp] = useState(null); // Tracks if it's the mobile app
 
   useEffect(() => {
-    const fetchFeaturedNurses = async () => {
-      try {
-        const q = query(
-          collection(db, "users"), 
-          where("role", "==", "nurse"),
-          limit(8) 
-        );
-        
-        const querySnapshot = await getDocs(q);
-        const nursesData = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+    // 1. Check if we are running inside the native Android/iOS app
+    const checkIsNative = Capacitor.isNativePlatform();
+    setIsNativeApp(checkIsNative);
 
-        console.log("🕵️ THE RAW FIREBASE DATA:", nursesData);
-        
-        setFeaturedNurses(nursesData);
-      } catch (error) {
-        console.error("Error fetching featured nurses:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    // 2. IF MOBILE APP: Start the 3-second splash screen timer
+    if (checkIsNative) {
+      const timer = setTimeout(() => {
+        router.push('/login');
+      }, 3000);
+      return () => clearTimeout(timer);
+    } 
+    // 3. IF WEB BROWSER: Fetch the featured nurses for the homepage
+    else {
+      const fetchFeaturedNurses = async () => {
+        try {
+          const q = query(
+            collection(db, "users"), 
+            where("role", "==", "nurse"),
+            limit(8) 
+          );
+          
+          const querySnapshot = await getDocs(q);
+          const nursesData = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
 
-    fetchFeaturedNurses();
-  }, []);
+          setFeaturedNurses(nursesData);
+        } catch (error) {
+          console.error("Error fetching featured nurses:", error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchFeaturedNurses();
+    }
+  }, [router]);
 
   // Animation sequences for staggered children
   const staggerContainer = {
@@ -54,6 +70,39 @@ export default function Home() {
     show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
   };
 
+  // Prevent flashing content before we know what platform we are on
+  if (isNativeApp === null) return null;
+
+  // ==========================================
+  // MOBILE APP VIEW (3-SECOND SPLASH SCREEN)
+  // ==========================================
+  if (isNativeApp) {
+    return (
+      <main className="min-h-[100dvh] bg-[#0a271f] flex flex-col items-center justify-center relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-600/20 rounded-full blur-[100px]"></div>
+        <div className="relative z-10 flex flex-col items-center animate-in fade-in zoom-in duration-1000">
+          <div className="bg-emerald-900/50 p-8 rounded-3xl border border-emerald-700/50 backdrop-blur-sm mb-8 shadow-[0_0_50px_rgba(16,185,129,0.15)] transform transition-all hover:scale-105">
+            <ShieldCheck className="w-20 h-20 text-emerald-400 animate-pulse" strokeWidth={1.5} />
+          </div>
+          <h1 className="text-5xl md:text-6xl font-black text-white font-serif tracking-tight mb-3">
+            Safe Home<span className="text-emerald-500">.</span>
+          </h1>
+          <div className="flex items-center gap-3 mt-6">
+            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+          <p className="text-emerald-200/60 font-bold tracking-[0.2em] uppercase text-xs mt-6 animate-pulse">
+            Secure Care Network
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  // ==========================================
+  // WEB BROWSER VIEW (FULL HOMEPAGE)
+  // ==========================================
   return (
     <main className="min-h-screen bg-[#fdfcf9] flex flex-col font-sans overflow-x-hidden transition-colors duration-300">
       
@@ -67,7 +116,7 @@ export default function Home() {
         >
           <motion.div variants={fadeUpItem} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50/80 text-emerald-800 text-sm font-bold border border-emerald-100">
             <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-            200+ Verified Professionals Available in Nepal
+            200+ Verified Professionals Available Globally
           </motion.div>
           
           <motion.h1 variants={fadeUpItem} className="text-6xl md:text-7xl font-bold text-gray-900 leading-[1.1] tracking-tight">
@@ -90,7 +139,7 @@ export default function Home() {
         </motion.div>
         
         <div className="relative w-full h-[600px] flex justify-center items-center mt-10 lg:mt-0">
-           {/* Floating verification badge (Replaced Tailwind bounce with smooth Framer Motion) */}
+           {/* Floating verification badge */}
            <motion.div 
              initial={{ opacity: 0, x: 50 }}
              animate={{ opacity: 1, x: 0, y: [0, -10, 0] }}
@@ -132,8 +181,8 @@ export default function Home() {
               </div>
               <h3 className="text-3xl text-white font-bold leading-tight mb-6">Find <span className="font-serif italic font-normal text-emerald-400">trusted</span><br/>care near you.</h3>
               <div className="bg-white/10 rounded-xl p-3 mb-4 flex items-center gap-2 border border-white/5">
-                <span className="text-gray-400">🔍</span>
-                <span className="text-sm text-gray-400">Search by role...</span>
+                <span className="text-gray-400">📍</span>
+                <span className="text-sm text-gray-400">Search by city or zip code...</span>
               </div>
               <div className="bg-white/5 rounded-2xl p-4 flex justify-between items-center border border-white/5 mt-auto">
                 <div className="flex items-center gap-3">
@@ -159,7 +208,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-emerald-900/50">
           {[
             { value: "500+", label: "Verified Professionals" },
-            { value: "98%", label: "Satisfaction Rate" },
+            { value: "100%", label: "Satisfaction Rate" },
             { value: "24/7", label: "Care Support" },
             { value: "15+", label: "Care Specialties" }
           ].map((stat, i) => (
@@ -200,7 +249,7 @@ export default function Home() {
                 rate={nurse.hourlyRate} 
                 rating={nurse.rating} 
                 reviews={nurse.reviewCount} 
-                location={nurse.district || nurse.city_zone}
+                location={nurse.location?.city ? `${nurse.location.city}, ${nurse.location.zipCode}` : 'Local Area'}
                 photo={nurse.avatar_url || nurse.photoURL}
               />
             ))}

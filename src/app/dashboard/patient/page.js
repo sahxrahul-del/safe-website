@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
-  doc, getDoc, collection, query, onSnapshot, where, updateDoc, addDoc, serverTimestamp, deleteDoc 
+  doc, getDoc, collection, query, onSnapshot, where, or, updateDoc, addDoc, serverTimestamp, deleteDoc 
 } from 'firebase/firestore';
 import { 
   LayoutDashboard, UserCircle, Plus, Search, Bell, 
@@ -79,7 +79,6 @@ export default function PatientSaaSDashboard() {
         const data = userDocSnap.data();
         
         const safeRole = data.role?.toLowerCase() || '';
-
         document.cookie = `userRole=${safeRole}; path=/; max-age=604800; SameSite=Lax; Secure`;
 
         if (safeRole === 'admin') { router.push('/admin'); return; }
@@ -88,6 +87,7 @@ export default function PatientSaaSDashboard() {
         setUserData(data);
         setPageLoading(false); 
 
+        // 🚨 1. FETCH PATIENT'S CASES
         const reqQuery = query(
           collection(db, "care_requests"), 
           where("patientId", "==", currentUser.uid)
@@ -98,29 +98,53 @@ export default function PatientSaaSDashboard() {
           setMyRequests(sortCases(myOnlyReqs)); 
         });
 
+        // 🚨 2. INTELLIGENT LOCATION MATCHING (Zip Code OR City)
+        const pLoc = data.location || {};
+        const safeCountry = (pLoc.country || '').toLowerCase();
+        const safeCity = (pLoc.city || '').toLowerCase();
+        const safeZip = (pLoc.zipCode || '').trim();
+
         let realNurses = [];
         let fakeNurses = [];
-        const patientDistrict = (data.district || '').toLowerCase();
 
         const updateProviderList = () => {
           const allProviders = [...realNurses, ...fakeNurses];
-          const localProviders = allProviders.filter(provider => {
-             const providerDistrict = (provider.district || '').toLowerCase();
-             return patientDistrict !== '' && providerDistrict !== '' && patientDistrict === providerDistrict;
+          
+          // Client-side filter for Role and Country ensures Firebase doesn't demand a custom index
+          const validProviders = allProviders.filter(provider => {
+            const isNurse = provider.role?.toLowerCase() === 'nurse' || provider.role?.toLowerCase() === 'provider' || !provider.role;
+            const matchesCountry = (provider.location?.country || '').toLowerCase() === safeCountry;
+            return isNurse && matchesCountry;
           });
-          setAvailableProviders(localProviders);
+          
+          setAvailableProviders(validProviders);
         };
 
-        const unsubUsers = onSnapshot(query(collection(db, "users")), (snapshot) => {
-          const allUsers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          realNurses = allUsers.filter(u => u.role?.toLowerCase() === 'nurse' || u.role?.toLowerCase() === 'provider');
-          updateProviderList();
-        });
+        let unsubUsers = () => {};
+        let unsubProviders = () => {};
 
-        const unsubProviders = onSnapshot(query(collection(db, "providers")), (snapshot) => {
-          fakeNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          updateProviderList();
-        });
+        // Only run the proximity query if the user has set up their location
+        if (safeCity || safeZip) {
+          
+          // The magic OR() query - grabs anyone in the exact zip OR the exact city
+          const locationQuery = [
+            or(
+              where("location.zipCode", "==", safeZip || "NO_ZIP"),
+              where("location.city", "==", safeCity || "NO_CITY")
+            )
+          ];
+
+          unsubUsers = onSnapshot(query(collection(db, "users"), ...locationQuery), (snapshot) => {
+            realNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            updateProviderList();
+          });
+
+          // Also pull from your mock providers collection if it exists
+          unsubProviders = onSnapshot(query(collection(db, "providers"), ...locationQuery), (snapshot) => {
+            fakeNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            updateProviderList();
+          });
+        }
 
         return () => {
           unsubReqs();
@@ -198,7 +222,7 @@ export default function PatientSaaSDashboard() {
       await addDoc(collection(db, `care_requests/${activeChatId}/messages`), {
         text: newMessage,
         senderId: userAuth.uid,
-        senderName: displayName,
+        senderName: userData.name || userData.full_name || "Patient",
         createdAt: serverTimestamp()
       });
       setNewMessage("");
@@ -256,14 +280,19 @@ export default function PatientSaaSDashboard() {
 
   const displayName = userData.name || userData.full_name || "Patient";
   const displayPhoto = userData.photoURL || userData.avatar_url || null;
-  const displayLocation = userData.location || userData.district || 'Location not set';
+  
+  // Format sidebar location safely
+  const displayLocation = userData.location?.city 
+    ? `${userData.location.city}, ${userData.location.zipCode}` 
+    : 'Location not set';
 
   const activeCount = myRequests.filter(r => r.status === 'searching').length;
   const matchedCount = myRequests.filter(r => r.status === 'matched').length;
   const completedCount = myRequests.filter(r => r.status === 'completed').length;
 
   const renderDashboard = () => {
-    const isMissingLocation = !userData.province || !userData.district || !userData.address;
+    // Check missing profile requirements with new location format
+    const isMissingLocation = !userData.location?.country || !userData.location?.city || !userData.location?.street;
     const isMissingEmergency = !userData.emergencyName || !userData.emergencyPhone;
     const isMissingPhone = !userData.phone;
     
@@ -284,7 +313,7 @@ export default function PatientSaaSDashboard() {
                 </p>
                 <ul className="text-amber-700 text-sm font-bold list-disc list-inside ml-4 space-y-1">
                   {isMissingPhone && <li>Add your Mobile Number</li>}
-                  {isMissingLocation && <li>Add your exact Street Address and District</li>}
+                  {isMissingLocation && <li>Add your exact Street Address and City</li>}
                   {isMissingEmergency && <li>Add an Emergency Contact</li>}
                 </ul>
             </div>
@@ -344,8 +373,9 @@ export default function PatientSaaSDashboard() {
                       </div>
                       <div>
                         <h4 className="font-black text-gray-900 leading-tight mb-1">{req.roleNeeded}</h4>
-                        <p className="text-xs font-bold text-gray-400 flex items-center">
-                          <MapPin className="w-3 h-3 mr-1" /> {req.location} • {req.careType}
+                        <p className="text-xs font-bold text-gray-400 flex items-center capitalize">
+                          <MapPin className="w-3 h-3 mr-1" /> 
+                          {req.location?.city ? `${req.location.city}, ${req.location.zipCode}` : 'Local Area'} • {req.careType}
                         </p>
                       </div>
                     </div>
@@ -376,8 +406,8 @@ export default function PatientSaaSDashboard() {
           <h2 className="text-4xl font-serif text-gray-900 leading-tight">
             Find <span className="text-emerald-600 italic">trusted</span><br/>care near you
           </h2>
-          <p className="text-sm text-gray-500 font-bold flex items-center mt-3 bg-gray-50 w-fit px-3 py-1.5 rounded-lg border border-gray-100">
-            <MapPin className="w-4 h-4 mr-2 text-emerald-600"/> Showing providers in <span className="text-emerald-700 mx-1">{userData.district || 'your local area'}</span>
+          <p className="text-sm text-gray-500 font-bold flex items-center mt-3 bg-gray-50 w-fit px-3 py-1.5 rounded-lg border border-gray-100 capitalize">
+            <MapPin className="w-4 h-4 mr-2 text-emerald-600"/> Showing providers in <span className="text-emerald-700 mx-1">{userData.location?.city || 'your local area'}</span>
           </p>
         </div>
 
@@ -414,9 +444,9 @@ export default function PatientSaaSDashboard() {
         )}
 
         {availableProviders.length === 0 ? (
-          <div className="py-20 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100 shadow-sm">
+          <div className="py-20 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100 shadow-sm capitalize">
              <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-             No providers found in {userData.district || 'your area'} yet.
+             No providers found in {userData.location?.city || 'your area'} yet.
           </div>
         ) : (
           <div className="space-y-6">
@@ -442,7 +472,10 @@ export default function PatientSaaSDashboard() {
                   </div>
                   <div className="text-left sm:text-right">
                     <p className="text-2xl font-black text-gray-900">Rs. {nurse.hourlyRate || 1500}<span className="text-sm text-gray-500 font-medium">/hr</span></p>
-                    <p className="text-xs text-gray-400 font-bold flex items-center sm:justify-end mt-1"><MapPin className="w-3 h-3 mr-1"/> {nurse.location || nurse.district}</p>
+                    <p className="text-xs text-gray-400 font-bold flex items-center sm:justify-end mt-1 capitalize">
+                      <MapPin className="w-3 h-3 mr-1"/> 
+                      {nurse.location?.city ? `${nurse.location.city}, ${nurse.location.zipCode}` : 'Local Area'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-gray-50">
@@ -481,7 +514,10 @@ export default function PatientSaaSDashboard() {
                 {job.status === 'searching' ? 'Finding Matches' : job.status === 'matched' ? 'Active Care' : job.status}
               </span>
               <h3 className="text-xl font-black text-gray-900">{job.roleNeeded}</h3>
-              <p className="text-gray-500 text-sm mt-1 flex items-center"><MapPin className="w-4 h-4 mr-1"/> {job.location} • {job.careType}</p>
+              <p className="text-gray-500 text-sm mt-1 flex items-center capitalize">
+                <MapPin className="w-4 h-4 mr-1"/> 
+                {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'} • {job.careType}
+              </p>
               {job.nurseName && (
                 <div className="mt-4 flex items-center bg-gray-50 p-3 rounded-lg w-fit">
                   <div className="w-8 h-8 rounded-full bg-emerald-200 overflow-hidden flex items-center justify-center mr-3">
@@ -514,7 +550,6 @@ export default function PatientSaaSDashboard() {
                  <p className="text-sm font-bold text-gray-400 flex items-center px-2 py-1"><CheckCircle className="w-4 h-4 mr-1.5"/> Reviewed</p>
               )}
 
-              {/* DELETE BUTTON: Only show if the case is not yet completed */}
               {job.status !== 'completed' && (
                 <button 
                   onClick={() => setDeleteModal({ isOpen: true, jobId: job.id })}
@@ -620,7 +655,7 @@ export default function PatientSaaSDashboard() {
               <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider truncate w-32">Patient Account</p>
             </div>
           </div>
-          <div className="flex items-center text-xs font-bold text-gray-500 bg-gray-50 p-2 rounded-lg">
+          <div className="flex items-center text-xs font-bold text-gray-500 bg-gray-50 p-2 rounded-lg capitalize">
             <MapPin className="w-3 h-3 mr-1 text-gray-400" /> {displayLocation}
           </div>
         </div>
@@ -658,7 +693,6 @@ export default function PatientSaaSDashboard() {
       </aside>
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* DUPLICATE BELL REMOVED FROM HEADER BELOW */}
         <header className="bg-white border-b border-gray-100 p-6 flex justify-between items-center shrink-0 z-10">
            <div>
              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Patient Portal</p>
