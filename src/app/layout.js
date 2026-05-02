@@ -4,7 +4,7 @@ import Footer from "../components/Footer";
 import CustomCursor from "@/components/CustomCursor";
 
 export const metadata = {
-  title: "Safe Home",
+  title: "Safe",
   description: "Verified Professionals. Right when you need them.",
 };
 
@@ -15,18 +15,14 @@ export default function RootLayout({ children }) {
         suppressHydrationWarning 
         className="bg-[#fdfcf9] antialiased min-h-screen flex flex-col"
       >
-        {/* The green dot that follows the mouse */}
         <CustomCursor />
-
-        {/* Global Navigation */}
         <Navbar />
 
-        {/* Main Content Area */}
-        <main className="flex-grow flex flex-col">
+        {/* 🚨 THE FIX: Changed 'flex-grow' to 'flex-1 w-full' */}
+        <main className="flex-1 flex flex-col w-full relative">
           {children}
         </main>
 
-        {/* Global Footer */}
         <Footer /> 
       </body>
     </html>

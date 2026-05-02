@@ -24,7 +24,7 @@ export default function Footer() {
                    </svg>
                </div>
                <span className="text-2xl font-extrabold text-white tracking-tight font-serif">
-                 Safe <span className="text-emerald-500">Home.</span>
+                 Safe 
                </span>
             </div>
             <p className="text-sm text-emerald-200/80 leading-relaxed font-medium">
@@ -91,7 +91,7 @@ export default function Footer() {
         </div>
 
         <div className="max-w-7xl mx-auto mt-16 pt-8 border-t border-[#0f3a2d] flex flex-col md:flex-row justify-between items-center text-xs text-emerald-200/60 font-black tracking-widest uppercase">
-          <p>&copy; {new Date().getFullYear()} Safe Home. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Safe All rights reserved.</p>
          
         </div>
       </div>

@@ -76,8 +76,23 @@ export default function NurseSaaSDashboard() {
   // 1. SYSTEM INITIALIZATION & SECURITY
   // ==========================================
   useEffect(() => {
+    // 🚨 1. DECLARE ALL LISTENERS AT THE TOP
+    let unsubAvailable = () => {};
+    let unsubMyJobs = () => {};
+    let unsubInvites = () => {};
+
+    // 🚨 2. THE MAGIC SILENCER FUNCTION
+    const handleSilentError = (error) => {
+      if (error.code === 'permission-denied') return; // Ignore logout errors
+      console.error("Listener error:", error);
+    };
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
+        // 🚨 3. KILL THEM IMMEDIATELY WHEN LOGGING OUT
+        unsubAvailable();
+        unsubMyJobs();
+        unsubInvites();
         router.push('/login');
         return;
       }
@@ -116,8 +131,6 @@ export default function NurseSaaSDashboard() {
         const safeCountry = (pLoc.country || '').toLowerCase();
         const safeCity = (pLoc.city || '').toLowerCase();
         const safeZip = (pLoc.zipCode || '').trim();
-
-        let unsubAvailable = () => {};
         
         // QUERY 1: ONLY FETCH JOBS IN THEIR CITY OR ZIP CODE
         if (safeCity || safeZip) {
@@ -129,6 +142,7 @@ export default function NurseSaaSDashboard() {
             )
           );
           
+          // 🚨 ADDED handleSilentError
           unsubAvailable = onSnapshot(locQuery, (snapshot) => {
             const locJobs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             
@@ -139,7 +153,7 @@ export default function NurseSaaSDashboard() {
             );
             
             setAvailableJobs(validAvailable);
-          });
+          }, handleSilentError);
         }
 
         // QUERY 2: FETCH ONLY JOBS THEY ACCEPTED
@@ -147,32 +161,34 @@ export default function NurseSaaSDashboard() {
           collection(db, "care_requests"),
           where("nurseId", "==", currentUser.uid)
         );
-        const unsubMyJobs = onSnapshot(myJobsQuery, (snapshot) => {
+        // 🚨 ADDED handleSilentError
+        unsubMyJobs = onSnapshot(myJobsQuery, (snapshot) => {
           setMyJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
+        }, handleSilentError);
 
         // QUERY 3: FETCH ONLY DIRECT INVITES TO THEM
         const invitesQuery = query(
           collection(db, "care_requests"),
           where("targetNurseId", "==", currentUser.uid)
         );
-        const unsubInvites = onSnapshot(invitesQuery, (snapshot) => {
+        // 🚨 ADDED handleSilentError
+        unsubInvites = onSnapshot(invitesQuery, (snapshot) => {
           const invites = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           setDirectInvites(invites.filter(req => req.status === 'direct_request'));
-        });
-
-        return () => { 
-          unsubAvailable(); 
-          unsubMyJobs(); 
-          unsubInvites(); 
-        };
+        }, handleSilentError);
 
       } else {
         router.push('/profile?setup=true'); 
       }
     });
 
-    return () => unsubscribeAuth();
+    // 🚨 4. PROPER REACT COMPONENT CLEANUP
+    return () => {
+      unsubscribeAuth();
+      unsubAvailable(); 
+      unsubMyJobs(); 
+      unsubInvites(); 
+    };
   }, [router]);
 
   // REAL-TIME CHAT LISTENER
@@ -271,7 +287,7 @@ export default function NurseSaaSDashboard() {
             </div>
           </div>
           <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
-            Safe Home<span className="text-emerald-500">.</span>
+            Safe
           </h1>
           <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
             Securely Loading Dashboard...

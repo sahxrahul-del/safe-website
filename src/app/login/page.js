@@ -111,9 +111,9 @@ export default function Login() {
         <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center overflow-hidden">
           <Image src="/login-background.jpg" alt="Login Background" fill sizes="(max-width: 1024px) 100vw, 50vw" priority className="z-0 object-cover" />
           <div className="absolute inset-0 bg-gradient-to-br from-[#0a271f]/80 to-emerald-900/80 z-10" />
-          <div className="absolute top-[10%] left-[5%] text-[200px] font-serif z-5 text-emerald-300 opacity-20 pointer-events-none select-none">Safe.</div>
+          <div className="absolute top-[10%] left-[5%] text-[200px] font-serif z-5 text-emerald-300 opacity-20 pointer-events-none select-none">Safe</div>
           <div className="relative z-20 text-white p-12 text-center max-w-lg">
-            <h2 className="text-4xl font-extrabold mb-6 tracking-tight leading-tight">Welcome back <br/> to Safe.</h2>
+            <h2 className="text-4xl font-extrabold mb-6 tracking-tight leading-tight">Welcome back <br/> to Safe</h2>
             <p className="text-lg text-emerald-100 font-medium">Connecting families with Nepal's most trusted, verified healthcare professionals.</p>
           </div>
         </div>

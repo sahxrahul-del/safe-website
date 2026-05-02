@@ -200,7 +200,7 @@ export default function NursePublicProfile() {
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
               <h3 className="text-xl font-black text-gray-900 mb-6 flex items-center"><Briefcase className="w-5 h-5 mr-3 text-emerald-600"/> Professional Bio</h3>
               <p className="text-gray-600 leading-relaxed font-medium whitespace-pre-wrap">
-                {nurseData.bio || `${displayName} is a highly qualified ${displayRole} with extensive experience providing compassionate, top-tier care in home and facility settings. Fully verified through the Safe Home platform.`}
+                {nurseData.bio || `${displayName} is a highly qualified ${displayRole} with extensive experience providing compassionate, top-tier care in home and facility settings. Fully verified through the Safe platform.`}
               </p>
             </div>
 
@@ -216,7 +216,7 @@ export default function NursePublicProfile() {
                 )}
 
                 {!nurseData.cv_url && !nurseData.license_url && !nurseData.cert_bachelor_url && !nurseData.cert_plus2_url && !nurseData.cert_slc_url && (
-                  <p className="text-gray-500 font-medium italic col-span-2">Documents securely stored offline via Safe Home compliance.</p>
+                  <p className="text-gray-500 font-medium italic col-span-2">Documents securely stored offline via Safe compliance.</p>
                 )}
               </div>
             </div>

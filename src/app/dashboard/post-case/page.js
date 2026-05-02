@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle, Loader2, UploadCloud, FileText, MapPin } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, UploadCloud, FileText, MapPin, X } from 'lucide-react'; // 🚨 Added X icon
 
 // IMPORTING FIREBASE
 import { auth, db, storage } from '@/lib/firebase'; 
@@ -21,7 +21,9 @@ export default function PostCareRequest() {
   const [uploadingFile, setUploadingFile] = useState(false); 
   const [medicalFiles, setMedicalFiles] = useState([]); 
 
-  // 🚨 NEW GLOBAL FORM DATA STATE 🚨
+  const [durationSelect, setDurationSelection] = useState("");
+  const [customDuration, setCustomDuration] = useState("");
+
   const [formData, setFormData] = useState({
     careType: 'In-Home Care',
     roleNeeded: 'Registered Nurse (RN)',
@@ -69,12 +71,18 @@ export default function PostCareRequest() {
     return () => unsubscribe();
   }, [router]);
 
-  // 2. CAPTURE MULTIPLE FILES 
+  // 🚨 2. FILE MANAGEMENT FIXES 🚨
   const handleFileChange = (e) => {
     if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files);
-      setMedicalFiles(selectedFiles);
+      const newFiles = Array.from(e.target.files);
+      // APPEND new files to the existing array instead of replacing them
+      setMedicalFiles(prev => [...prev, ...newFiles]);
     }
+  };
+
+  const removeFile = (indexToRemove) => {
+    // Filter out the file that matches the clicked index
+    setMedicalFiles(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
   const handleChange = (e) => {
@@ -95,7 +103,9 @@ export default function PostCareRequest() {
         uploadedUrls = await Promise.all(
           medicalFiles.map(async (file, index) => {
             const fileExt = file.name.split('.').pop();
-            const fileName = `medical_${userData.id}_${Date.now()}_${index}.${fileExt}`;
+            // Added a random string so multiple files don't overwrite each other!
+            const randomString = Math.random().toString(36).substring(7);
+            const fileName = `medical_${userData.id}_${Date.now()}_${randomString}_${index}.${fileExt}`;
             const storageRef = ref(storage, `medical_records/${fileName}`);
             
             await uploadBytesResumable(storageRef, file);
@@ -106,12 +116,13 @@ export default function PostCareRequest() {
         setUploadingFile(false);
       }
 
-      // Format location specifically for querying before saving
       const { country, state, city, zipCode, street, ...restData } = formData;
+      
+      // Calculate the final duration to save
+      const finalDuration = durationSelect === 'Custom' ? customDuration : durationSelect;
 
       await addDoc(collection(db, "care_requests"), {
         ...restData,
-        // Save as a structured object just like in the user profiles
         location: {
           country: country?.toLowerCase().trim() || '',
           state: state?.trim() || '',
@@ -119,14 +130,15 @@ export default function PostCareRequest() {
           zipCode: zipCode?.trim() || '',
           street: street?.trim() || ''
         },
+        duration: finalDuration, 
         patientId: userData.id, 
         patientName: userData.name || userData.full_name || "Patient",
         patientPhoto: userData.photoURL || userData.avatar_url || "",
         medical_urls: uploadedUrls, 
-        status: "searching", 
+        status: "pending_verification",
         createdAt: serverTimestamp(),
       });
-
+          
       setSubmitting(false);
       setSuccess(true);
       
@@ -149,21 +161,6 @@ export default function PostCareRequest() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fdfcf9]">
         <Loader2 className="w-12 h-12 animate-spin text-emerald-600" />
-      </div>
-    );
-  }
-
-  if (success) {
-    return (
-      <div className="min-h-screen bg-[#fdfcf9] flex flex-col items-center justify-center p-6">
-        <div className="text-center animate-in zoom-in duration-500">
-          <div className="w-32 h-32 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-8">
-            <CheckCircle className="w-16 h-16 text-emerald-600" />
-          </div>
-          <h2 className="text-4xl md:text-5xl font-black text-gray-900 font-serif mb-4">Case Posted!</h2>
-          <p className="text-lg text-gray-500 font-medium mb-10">Routing you to your perfect matches...</p>
-          <Loader2 className="w-10 h-10 animate-spin text-emerald-600 mx-auto" />
-        </div>
       </div>
     );
   }
@@ -225,7 +222,6 @@ export default function PostCareRequest() {
               </select>
             </div>
 
-            {/* 🚨 NEW GLOBAL LOCATION GRID 🚨 */}
             <div className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100 space-y-4">
               <label className="text-sm font-black text-gray-900 flex items-center mb-4"><MapPin className="w-5 h-5 mr-2 text-emerald-600"/> Care Location</label>
               
@@ -277,6 +273,34 @@ export default function PostCareRequest() {
               </div>
             </div>
 
+            <div className="mb-6">
+              <label className={labelClass}>Expected Duration</label>
+              <select 
+                value={durationSelect} 
+                onChange={(e) => setDurationSelection(e.target.value)}
+                className={inputClass}
+                required
+              >
+                <option value="">Select Duration</option>
+                <option value="1-3 Days">1-3 Days (Short term)</option>
+                <option value="1 Week">1 Week</option>
+                <option value="1 Month">1 Month</option>
+                <option value="Long Term (3+ Months)">Long Term (3+ Months)</option>
+                <option value="Custom">Custom (Specify below)</option>
+              </select>
+              
+              {durationSelect === 'Custom' && (
+                <input 
+                  type="text" 
+                  required
+                  placeholder="e.g., Every weekend for 6 weeks" 
+                  className={`mt-3 ${inputClass} animate-in fade-in slide-in-from-top-2`}
+                  value={customDuration}
+                  onChange={(e) => setCustomDuration(e.target.value)}
+                />
+              )}
+            </div>
+         
             <div>
               <label className={labelClass}>Details</label>
               <textarea 
@@ -288,23 +312,37 @@ export default function PostCareRequest() {
               />
             </div>
 
+            {/* 🚨 UPDATED MULTI-FILE UPLOAD UI 🚨 */}
             <div className="pt-4 border-t border-gray-100">
               <label className={labelClass}>Medical Documents / Prescriptions (Optional)</label>
-              <label className={`mt-2 inline-flex w-full items-center justify-center px-6 py-6 border-2 border-dashed rounded-xl cursor-pointer transition ${medicalFiles.length > 0 ? 'bg-emerald-50 border-emerald-600 text-emerald-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-                  <UploadCloud className="w-6 h-6 mr-3 text-emerald-600"/>
-                  <span className="font-bold text-sm">
-                    {medicalFiles.length > 0 ? `${medicalFiles.length} file(s) selected (Click to change)` : "Click to select Medical Files (PDF/Image)"}
+              
+              <label className="mt-2 flex w-full flex-col items-center justify-center px-6 py-8 border-2 border-dashed rounded-xl cursor-pointer transition bg-white border-gray-300 text-gray-600 hover:border-emerald-500 hover:bg-emerald-50">
+                  <UploadCloud className="w-8 h-8 mb-2 text-emerald-600"/>
+                  <span className="font-bold text-sm text-gray-900">
+                    Click to select Medical Files (PDF/Image)
                   </span>
+                  <span className="text-xs font-medium text-gray-400 mt-1">You can select multiple files</span>
                   <input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
               </label>
 
               {medicalFiles.length > 0 && (
-                <div className="mt-4 space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Selected Files:</p>
+                <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Selected Files ({medicalFiles.length}):</p>
                   {medicalFiles.map((file, index) => (
-                    <p key={index} className="text-sm font-bold text-emerald-700 flex items-center">
-                      <FileText className="w-4 h-4 mr-2" /> {file.name}
-                    </p>
+                    <div key={index} className="flex justify-between items-center p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
+                      <div className="flex items-center overflow-hidden">
+                        <FileText className="w-4 h-4 text-emerald-600 mr-3 shrink-0" />
+                        <span className="text-sm font-bold text-gray-700 truncate">{file.name}</span>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => removeFile(index)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition shrink-0 ml-2"
+                        title="Remove file"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -324,6 +362,22 @@ export default function PostCareRequest() {
                 "Post My Care Request →"
               )}
             </button>
+
+            {/* BEAUTIFUL SUCCESS MODAL */}
+            {success && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white rounded-[2rem] w-full max-w-sm shadow-2xl p-8 flex flex-col items-center text-center animate-in zoom-in-95">
+                  <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-sm">
+                    <CheckCircle className="w-10 h-10 text-emerald-600" />
+                  </div>
+                  <h3 className="text-2xl font-black text-gray-900 font-serif mb-2">Request Submitted!</h3>
+                  <p className="text-gray-500 font-medium mb-6 text-sm">
+                    Your care request has been sent to our safety team. It will go live once verified.
+                  </p>
+                  <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+                </div>
+              </div>
+            )}
 
           </form>
         </div>

@@ -24,6 +24,15 @@ export default function Navbar() {
 
   // 1. LISTEN FOR AUTH & ROLE
   useEffect(() => {
+    // 🚨 1. Declare the cleanup variable
+    let unsubNotifications = () => {};
+
+    // 🚨 2. The magic silencer
+    const handleSilentError = (error) => {
+      if (error.code === 'permission-denied') return;
+      console.error("Navbar listener error:", error);
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
@@ -41,22 +50,31 @@ export default function Navbar() {
 
           // 2. LISTEN FOR YOUTUBE-STYLE NOTIFICATIONS
           const role = data.role?.toLowerCase();
+          
+          // 🚨 3. Assign to unsubNotifications AND add handleSilentError
           if (role === 'patient' || role === 'family') {
             const q = query(collection(db, "care_requests"), where("patientId", "==", currentUser.uid), where("status", "==", "matched"));
-            onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            unsubNotifications = onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))), handleSilentError);
           } else {
             const q = query(collection(db, "care_requests"), where("targetNurseId", "==", currentUser.uid), where("status", "==", "direct_request"));
-            onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            unsubNotifications = onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))), handleSilentError);
           }
         }
       } else {
+        // 🚨 4. Kill the listener immediately on logout
+        unsubNotifications(); 
         setUser(null);
         setUserData(null);
         setAvatarUrl(null);
         setNotifications([]);
       }
     });
-    return () => unsubscribe();
+
+    // 🚨 5. Final React cleanup
+    return () => {
+      unsubscribe();
+      unsubNotifications();
+    };
   }, []);
 
   const handleLogout = async () => {

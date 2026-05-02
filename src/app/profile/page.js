@@ -32,7 +32,7 @@ export default function Profile() {
     id: '', email: '', full_name: '', phone: '', role: urlRole || 'patient', 
     avatar_url: '/default-avatar.png',
     
-    // NEW: Global Location Fields
+    // Global Location Fields
     country: '', state: '', city: '', zipCode: '', street: '',
     
     // Nurse Specific
@@ -103,7 +103,20 @@ export default function Profile() {
     return () => unsubscribe();
   }, [router, urlRole]);
 
-  const handleChange = (e) => { setFormData({ ...formData, [e.target.name]: e.target.value }); setMessage(null); };
+  // Standard handler for text fields
+  const handleChange = (e) => { 
+    setFormData({ ...formData, [e.target.name]: e.target.value }); 
+    setMessage(null); 
+  };
+
+  // 🚨 NEW: Dedicated handler for phone numbers that strips letters
+  const handlePhoneChange = (e) => {
+    const { name, value } = e.target;
+    // Replace anything that is not a number 0-9 with an empty string
+    const onlyNumbers = value.replace(/[^0-9]/g, '');
+    setFormData({ ...formData, [name]: onlyNumbers });
+    setMessage(null);
+  };
 
   const handleFileUpload = async (e, type, urlField) => {
     const file = e.target.files[0];
@@ -144,8 +157,8 @@ export default function Profile() {
     if (formData.phone) {
       // Basic check for at least 10 digits (can be modified for international later)
       const phoneRegex = /^\d{10,}$/;
-      if (!phoneRegex.test(formData.phone.replace(/[^0-9]/g, ''))) {
-        setMessage({ type: 'error', text: "Please enter a valid mobile number." });
+      if (!phoneRegex.test(formData.phone)) {
+        setMessage({ type: 'error', text: "Please enter a valid mobile number (at least 10 digits)." });
         setSaving(false);
         return; 
       }
@@ -198,7 +211,7 @@ export default function Profile() {
             </div>
           </div>
           <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
-            Safe Home<span className="text-emerald-500">.</span>
+            Safe
           </h1>
           <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
             Securely Loading Profile...
@@ -218,7 +231,7 @@ export default function Profile() {
   const labelClass = "block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2";
   const cardClass = "bg-white p-8 rounded-2xl shadow-sm border border-gray-100 mb-8";
   
-  // 🚨 ROLE DEFINITIONS
+  // ROLE DEFINITIONS
   const isNurse = formData.role === 'nurse';
   const isAdmin = formData.role === 'admin';
 
@@ -238,7 +251,7 @@ export default function Profile() {
         <div className="mb-8">
             <h1 className="text-3xl font-black text-gray-900">{isSetup ? "Complete Your Profile" : "Profile Settings"}</h1>
             <p className="text-gray-500 mt-2 font-medium">
-              {isAdmin ? "Manage your system administrator details." : (isSetup ? "Let's get your account fully configured to access Safe Home." : "Manage your personal and professional details.")}
+              {isAdmin ? "Manage your system administrator details." : (isSetup ? "Let's get your account fully configured to access Safe" : "Manage your personal and professional details.")}
             </p>
         </div>
 
@@ -289,12 +302,13 @@ export default function Profile() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className={labelClass}>Mobile Number {isAdmin ? '' : '*'}</label>
-                  <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className={inputClass} required={!isAdmin} placeholder="e.g. 9800000000" />
+                  {/* 🚨 UPDATED: Uses handlePhoneChange and maxLength */}
+                  <input type="tel" name="phone" value={formData.phone} onChange={handlePhoneChange} maxLength={15} className={inputClass} required={!isAdmin} placeholder="e.g. 9800000000" />
                 </div>
             </div>
           </div>
 
-          {/* 🚨 HIDDEN FOR ADMINS */}
+          {/* HIDDEN FOR ADMINS */}
           {!isAdmin && (
             <>
               {/* CARD 2: NEW GLOBAL LOCATION */}
@@ -460,7 +474,8 @@ export default function Profile() {
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                               <input type="text" name="emergencyName" value={formData.emergencyName} onChange={handleChange} className={inputClass} placeholder="Name" />
                               <input type="text" name="emergencyRelation" value={formData.emergencyRelation} onChange={handleChange} className={inputClass} placeholder="Relation" />
-                              <input type="tel" name="emergencyPhone" value={formData.emergencyPhone} onChange={handleChange} className={inputClass} placeholder="Phone" />
+                              {/* 🚨 UPDATED: Uses handlePhoneChange and maxLength */}
+                              <input type="tel" name="emergencyPhone" value={formData.emergencyPhone} onChange={handlePhoneChange} maxLength={15} className={inputClass} placeholder="Phone" />
                           </div>
                       </div>
                   </div>

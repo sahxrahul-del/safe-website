@@ -152,7 +152,7 @@ export default function Signup() {
         ) : (
           <>
             <div className="text-center mb-10">
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-[#0a271f]">Join Safe Home</h1>
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-[#0a271f]">Join Safe</h1>
               <p className="text-gray-500 mt-3 text-lg">Select your account type to get started</p>
             </div>
 

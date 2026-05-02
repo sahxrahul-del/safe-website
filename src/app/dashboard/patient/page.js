@@ -46,9 +46,10 @@ export default function PatientSaaSDashboard() {
   // ==========================================
   const sortCases = (casesArray) => {
     const statusWeight = {
-      'matched': 1,
-      'searching': 2,
-      'completed': 3
+      'pending_verification': 1, // <--- Pending cases float to the top
+      'matched': 2,
+      'searching': 3,
+      'completed': 4
     };
 
     return [...casesArray].sort((a, b) => {
@@ -61,15 +62,47 @@ export default function PatientSaaSDashboard() {
     });
   };
 
+  // Helper for Status Badges
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'pending_verification':
+        return { style: 'bg-yellow-100 text-yellow-800 border border-yellow-200', label: 'In Review' };
+      case 'searching':
+        return { style: 'bg-amber-50 text-amber-700 border border-amber-200', label: 'Finding Matches' };
+      case 'matched':
+        return { style: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: 'Active Care' };
+      case 'completed':
+        return { style: 'bg-gray-100 text-gray-600 border border-gray-200', label: 'Completed' };
+      default:
+        return { style: 'bg-gray-100 text-gray-600', label: status };
+    }
+  };
+
   // ==========================================
   // 1. SYSTEM INITIALIZATION & SECURITY
   // ==========================================
   useEffect(() => {
+    // 🚨 1. DECLARE THEM UP HERE! (Outside the Auth Listener)
+    let unsubReqs = () => {};
+    let unsubUsers = () => {};
+    let unsubProviders = () => {};
+
+    // 🚨 THE MAGIC SILENCER FUNCTION 🚨
+    const handleSilentError = (error) => {
+      if (error.code === 'permission-denied') return; // Ignore logout errors
+      console.error("Listener error:", error);
+    };
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
+        // 🚨 2. KILL THEM IMMEDIATELY WHEN LOGGING OUT!
+        unsubReqs();
+        unsubUsers();
+        unsubProviders();
         router.push('/login');
         return;
       }
+      
       setUserAuth(currentUser);
 
       const userDocRef = doc(db, "users", currentUser.uid);
@@ -87,18 +120,19 @@ export default function PatientSaaSDashboard() {
         setUserData(data);
         setPageLoading(false); 
 
-        // 🚨 1. FETCH PATIENT'S CASES
+        // 🚨 3. ASSIGN THE LISTENERS TO OUR VARIABLES
         const reqQuery = query(
           collection(db, "care_requests"), 
           where("patientId", "==", currentUser.uid)
         );
         
-        const unsubReqs = onSnapshot(reqQuery, (snapshot) => {
+        // 🚨 ADDED handleSilentError HERE
+        unsubReqs = onSnapshot(reqQuery, (snapshot) => {
           const myOnlyReqs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           setMyRequests(sortCases(myOnlyReqs)); 
-        });
+        }, handleSilentError); 
 
-        // 🚨 2. INTELLIGENT LOCATION MATCHING (Zip Code OR City)
+        // 🚨 INTELLIGENT LOCATION MATCHING (Zip Code OR City)
         const pLoc = data.location || {};
         const safeCountry = (pLoc.country || '').toLowerCase();
         const safeCity = (pLoc.city || '').toLowerCase();
@@ -120,12 +154,8 @@ export default function PatientSaaSDashboard() {
           setAvailableProviders(validProviders);
         };
 
-        let unsubUsers = () => {};
-        let unsubProviders = () => {};
-
         // Only run the proximity query if the user has set up their location
         if (safeCity || safeZip) {
-          
           // The magic OR() query - grabs anyone in the exact zip OR the exact city
           const locationQuery = [
             or(
@@ -134,32 +164,33 @@ export default function PatientSaaSDashboard() {
             )
           ];
 
+          // 🚨 ADDED handleSilentError HERE
           unsubUsers = onSnapshot(query(collection(db, "users"), ...locationQuery), (snapshot) => {
             realNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             updateProviderList();
-          });
+          }, handleSilentError);
 
-          // Also pull from your mock providers collection if it exists
+          // 🚨 ADDED handleSilentError HERE
           unsubProviders = onSnapshot(query(collection(db, "providers"), ...locationQuery), (snapshot) => {
             fakeNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             updateProviderList();
-          });
+          }, handleSilentError);
         }
-
-        return () => {
-          unsubReqs();
-          unsubUsers();
-          unsubProviders();
-        };
 
       } else {
         router.push('/profile?setup=true'); 
       }
     });
 
-    return () => unsubscribeAuth();
+    // 🚨 4. REACT COMPONENT CLEANUP
+    return () => {
+      unsubscribeAuth();
+      unsubReqs();
+      unsubUsers();
+      unsubProviders();
+    };
   }, [router]);
-
+  
   // ==========================================
   // 2. LIVE DATABASE ACTIONS (Chat, Reviews, Delete)
   // ==========================================
@@ -262,7 +293,7 @@ export default function PatientSaaSDashboard() {
             </div>
           </div>
           <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
-            Safe Home<span className="text-emerald-500">.</span>
+            Safe<span className="text-emerald-500">.</span>
           </h1>
           <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
             Securely Loading Dashboard...
@@ -380,9 +411,12 @@ export default function PatientSaaSDashboard() {
                       </div>
                     </div>
                     <div className="flex items-center justify-between sm:justify-end sm:gap-8 border-t sm:border-0 border-gray-50 pt-4 sm:pt-0">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === 'searching' ? 'bg-amber-50 text-amber-700' : (req.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700')}`}>
-                        {req.status === 'searching' ? 'Finding Matches' : req.status === 'matched' ? 'Active Care' : req.status}
+                      
+                      {/* 🚨 UPDATED BADGE HELPER IMPLEMENTED HERE */}
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusBadge(req.status).style}`}>
+                        {getStatusBadge(req.status).label}
                       </span>
+                      
                       <button onClick={() => setActiveTab('my-cases')} className="w-8 h-8 rounded-full bg-gray-50 group-hover:bg-emerald-50 flex items-center justify-center transition shrink-0">
                         <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600" />
                       </button>
@@ -398,8 +432,8 @@ export default function PatientSaaSDashboard() {
   };
   
   const renderFindProviders = () => {
-    const localFeaturedNurses = availableProviders.filter(nurse => nurse.isFeatured || nurse.rating >= 4.8);
-
+    const localFeaturedNurses = availableProviders.filter(nurse => nurse.isFeatured === true)
+    const regularProviders = availableProviders.filter(nurse => !nurse.isFeatured);
     return (
       <div className="animate-in fade-in duration-300 max-w-5xl">
         <div className="mb-8">
@@ -510,14 +544,28 @@ export default function PatientSaaSDashboard() {
         {myRequests.map(job => (
           <div key={job.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-6 hover:shadow-md transition">
             <div>
-              <span className={`inline-block px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-md mb-3 ${job.status === 'searching' ? 'bg-amber-100 text-amber-800' : (job.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-100 text-emerald-800')}`}>
-                {job.status === 'searching' ? 'Finding Matches' : job.status === 'matched' ? 'Active Care' : job.status}
+              
+              {/* 🚨 UPDATED BADGE HELPER IMPLEMENTED HERE */}
+              <span className={`inline-block px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-md mb-3 ${getStatusBadge(job.status).style}`}>
+                {getStatusBadge(job.status).label}
               </span>
+              
               <h3 className="text-xl font-black text-gray-900">{job.roleNeeded}</h3>
               <p className="text-gray-500 text-sm mt-1 flex items-center capitalize">
                 <MapPin className="w-4 h-4 mr-1"/> 
                 {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'} • {job.careType}
               </p>
+              
+              {/* 🚨 NEW: Warning text for unverified cases */}
+              {job.status === 'pending_verification' && (
+                <div className="mt-3 bg-yellow-50 p-3 rounded-lg border border-yellow-100 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />
+                  <p className="text-xs font-medium text-yellow-800 max-w-sm">
+                    This request is under review by our safety team. You cannot invite providers until it is approved.
+                  </p>
+                </div>
+              )}
+
               {job.nurseName && (
                 <div className="mt-4 flex items-center bg-gray-50 p-3 rounded-lg w-fit">
                   <div className="w-8 h-8 rounded-full bg-emerald-200 overflow-hidden flex items-center justify-center mr-3">
@@ -697,7 +745,7 @@ export default function PatientSaaSDashboard() {
            <div>
              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Patient Portal</p>
              <h2 className="text-2xl font-black text-gray-900 font-serif">Hello, {displayName.split(' ')[0]} 👋</h2>
-           </div>           
+           </div>          
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
