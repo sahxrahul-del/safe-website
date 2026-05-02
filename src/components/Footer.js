@@ -25,7 +25,7 @@ export default function Footer() {
                </div>
                <span className="text-2xl font-extrabold text-white tracking-tight font-serif">
                  Safe
-  //<span className="text-emerald-500">Home.</span>
+/*  // <span className="text-emerald-500">Home.</span>*/
                </span>
             </div>
             <p className="text-sm text-emerald-200/80 leading-relaxed font-medium">
