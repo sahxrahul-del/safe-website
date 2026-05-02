@@ -21,10 +21,10 @@ export default function Footer() {
                    {/* ShieldCheck SVG */}
                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>
-                   </svg>
+                   </svg
                </div>
                <span className="text-2xl font-extrabold text-white tracking-tight font-serif">
-                 Safe <span className="text-emerald-500">Home.</span>
+                 Safe //<span className="text-emerald-500">Home.</span>
                </span>
             </div>
             <p className="text-sm text-emerald-200/80 leading-relaxed font-medium">
@@ -84,7 +84,7 @@ export default function Footer() {
               <li className="flex items-center">
                 {/* Mail SVG */}
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-3 text-emerald-500 shrink-0"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                <span>support@safehome.com</span>
+                <span>support@usesafe.app</span>
               </li>
             </ul>
           </div>
