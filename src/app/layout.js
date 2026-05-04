@@ -2,6 +2,7 @@ import "./globals.css";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer"; 
 import CustomCursor from "@/components/CustomCursor";
+import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
   title: "Safe",
@@ -24,6 +25,7 @@ export default function RootLayout({ children }) {
         </main>
 
         <Footer /> 
+        <Analytics />
       </body>
     </html>
   );

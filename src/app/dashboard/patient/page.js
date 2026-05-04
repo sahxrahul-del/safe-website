@@ -46,7 +46,7 @@ export default function PatientSaaSDashboard() {
   // ==========================================
   const sortCases = (casesArray) => {
     const statusWeight = {
-      'pending_verification': 1, // <--- Pending cases float to the top
+      'pending_verification': 1, 
       'matched': 2,
       'searching': 3,
       'completed': 4
@@ -82,20 +82,17 @@ export default function PatientSaaSDashboard() {
   // 1. SYSTEM INITIALIZATION & SECURITY
   // ==========================================
   useEffect(() => {
-    // 🚨 1. DECLARE THEM UP HERE! (Outside the Auth Listener)
     let unsubReqs = () => {};
     let unsubUsers = () => {};
     let unsubProviders = () => {};
 
-    // 🚨 THE MAGIC SILENCER FUNCTION 🚨
     const handleSilentError = (error) => {
-      if (error.code === 'permission-denied') return; // Ignore logout errors
+      if (error.code === 'permission-denied') return; 
       console.error("Listener error:", error);
     };
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
-        // 🚨 2. KILL THEM IMMEDIATELY WHEN LOGGING OUT!
         unsubReqs();
         unsubUsers();
         unsubProviders();
@@ -120,19 +117,16 @@ export default function PatientSaaSDashboard() {
         setUserData(data);
         setPageLoading(false); 
 
-        // 🚨 3. ASSIGN THE LISTENERS TO OUR VARIABLES
         const reqQuery = query(
           collection(db, "care_requests"), 
           where("patientId", "==", currentUser.uid)
         );
         
-        // 🚨 ADDED handleSilentError HERE
         unsubReqs = onSnapshot(reqQuery, (snapshot) => {
           const myOnlyReqs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           setMyRequests(sortCases(myOnlyReqs)); 
         }, handleSilentError); 
 
-        // 🚨 INTELLIGENT LOCATION MATCHING (Zip Code OR City)
         const pLoc = data.location || {};
         const safeCountry = (pLoc.country || '').toLowerCase();
         const safeCity = (pLoc.city || '').toLowerCase();
@@ -144,7 +138,6 @@ export default function PatientSaaSDashboard() {
         const updateProviderList = () => {
           const allProviders = [...realNurses, ...fakeNurses];
           
-          // Client-side filter for Role and Country ensures Firebase doesn't demand a custom index
           const validProviders = allProviders.filter(provider => {
             const isNurse = provider.role?.toLowerCase() === 'nurse' || provider.role?.toLowerCase() === 'provider' || !provider.role;
             const matchesCountry = (provider.location?.country || '').toLowerCase() === safeCountry;
@@ -154,9 +147,7 @@ export default function PatientSaaSDashboard() {
           setAvailableProviders(validProviders);
         };
 
-        // Only run the proximity query if the user has set up their location
         if (safeCity || safeZip) {
-          // The magic OR() query - grabs anyone in the exact zip OR the exact city
           const locationQuery = [
             or(
               where("location.zipCode", "==", safeZip || "NO_ZIP"),
@@ -164,13 +155,11 @@ export default function PatientSaaSDashboard() {
             )
           ];
 
-          // 🚨 ADDED handleSilentError HERE
           unsubUsers = onSnapshot(query(collection(db, "users"), ...locationQuery), (snapshot) => {
             realNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             updateProviderList();
           }, handleSilentError);
 
-          // 🚨 ADDED handleSilentError HERE
           unsubProviders = onSnapshot(query(collection(db, "providers"), ...locationQuery), (snapshot) => {
             fakeNurses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             updateProviderList();
@@ -182,7 +171,6 @@ export default function PatientSaaSDashboard() {
       }
     });
 
-    // 🚨 4. REACT COMPONENT CLEANUP
     return () => {
       unsubscribeAuth();
       unsubReqs();
@@ -262,7 +250,6 @@ export default function PatientSaaSDashboard() {
     }
   };
 
-  // DELETE CASE FUNCTION
   const executeDeleteJob = async () => {
     if (!deleteModal.jobId) return;
     setIsDeleting(true);
@@ -293,7 +280,7 @@ export default function PatientSaaSDashboard() {
             </div>
           </div>
           <h1 className="text-4xl md:text-5xl font-black text-white font-serif tracking-tight mb-2">
-            Safe<span className="text-emerald-500">.</span>
+            Safe
           </h1>
           <p className="text-emerald-200/80 font-medium tracking-widest uppercase text-xs mb-10">
             Securely Loading Dashboard...
@@ -312,7 +299,6 @@ export default function PatientSaaSDashboard() {
   const displayName = userData.name || userData.full_name || "Patient";
   const displayPhoto = userData.photoURL || userData.avatar_url || null;
   
-  // Format sidebar location safely
   const displayLocation = userData.location?.city 
     ? `${userData.location.city}, ${userData.location.zipCode}` 
     : 'Location not set';
@@ -322,7 +308,6 @@ export default function PatientSaaSDashboard() {
   const completedCount = myRequests.filter(r => r.status === 'completed').length;
 
   const renderDashboard = () => {
-    // Check missing profile requirements with new location format
     const isMissingLocation = !userData.location?.country || !userData.location?.city || !userData.location?.street;
     const isMissingEmergency = !userData.emergencyName || !userData.emergencyPhone;
     const isMissingPhone = !userData.phone;
@@ -412,7 +397,6 @@ export default function PatientSaaSDashboard() {
                     </div>
                     <div className="flex items-center justify-between sm:justify-end sm:gap-8 border-t sm:border-0 border-gray-50 pt-4 sm:pt-0">
                       
-                      {/* 🚨 UPDATED BADGE HELPER IMPLEMENTED HERE */}
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusBadge(req.status).style}`}>
                         {getStatusBadge(req.status).label}
                       </span>
@@ -432,8 +416,9 @@ export default function PatientSaaSDashboard() {
   };
   
   const renderFindProviders = () => {
-    const localFeaturedNurses = availableProviders.filter(nurse => nurse.isFeatured === true)
+    const localFeaturedNurses = availableProviders.filter(nurse => nurse.isFeatured === true);
     const regularProviders = availableProviders.filter(nurse => !nurse.isFeatured);
+    
     return (
       <div className="animate-in fade-in duration-300 max-w-5xl">
         <div className="mb-8">
@@ -445,6 +430,7 @@ export default function PatientSaaSDashboard() {
           </p>
         </div>
 
+        {/* FEATURED PROVIDERS SECTION */}
         {localFeaturedNurses.length > 0 && (
           <div className="mb-10">
             <h3 className="font-bold text-gray-900 mb-4 flex items-center">
@@ -477,14 +463,21 @@ export default function PatientSaaSDashboard() {
           </div>
         )}
 
-        {availableProviders.length === 0 ? (
-          <div className="py-20 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100 shadow-sm capitalize">
-             <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-             No providers found in {userData.location?.city || 'your area'} yet.
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {availableProviders.map((nurse) => (
+        {/* REGULAR PROVIDERS SECTION */}
+        <div className="space-y-6">
+          
+          {/* 🚨 THE HEADING IS NOW ALWAYS VISIBLE 🚨 */}
+          <h3 className="font-bold text-gray-900 text-xl flex items-center pt-2 pb-2">
+            All Available Providers
+          </h3>
+
+          {regularProviders.length === 0 ? (
+            <div className="py-20 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100 shadow-sm capitalize">
+               <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+               No other providers found in {userData.location?.city || 'your area'} yet.
+            </div>
+          ) : (
+            regularProviders.map((nurse) => (
               <div key={nurse.id} className="bg-white rounded-3xl border border-gray-100 p-6 sm:p-8 shadow-sm transition hover:shadow-md">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-6">
                   <div className="flex items-center gap-4">
@@ -521,12 +514,12 @@ export default function PatientSaaSDashboard() {
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
       </div>
     );
-  }
+  };
 
   const renderMyCases = () => (
     <div className="animate-in fade-in duration-300 max-w-4xl">
@@ -544,8 +537,6 @@ export default function PatientSaaSDashboard() {
         {myRequests.map(job => (
           <div key={job.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-6 hover:shadow-md transition">
             <div>
-              
-              {/* 🚨 UPDATED BADGE HELPER IMPLEMENTED HERE */}
               <span className={`inline-block px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-md mb-3 ${getStatusBadge(job.status).style}`}>
                 {getStatusBadge(job.status).label}
               </span>
@@ -556,7 +547,6 @@ export default function PatientSaaSDashboard() {
                 {job.location?.city ? `${job.location.city}, ${job.location.zipCode}` : 'Local Area'} • {job.careType}
               </p>
               
-              {/* 🚨 NEW: Warning text for unverified cases */}
               {job.status === 'pending_verification' && (
                 <div className="mt-3 bg-yellow-50 p-3 rounded-lg border border-yellow-100 flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />
